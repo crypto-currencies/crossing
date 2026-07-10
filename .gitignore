@@ -1,0 +1,61 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files 
+.env*
+.env
+.env.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+.claude/
+.claire/.claude/
+.claire/
+
+# agents
+AGENTS.md
+CLAUDE.md
+.claude*
+
+# random browser/dev junk
+.chrome*
+.dev*
+Ctemplint-output.txt
+.edge*
+.edge-hero-profile*
+# Sentry Config File
+.env.sentry-build-plugin
+
+# Local dev upload artifacts — production uploads go to Vercel Blob, never the repo
+/public/uploads/
