@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  // Resolve the session token for clients that need it (e.g. magic-link callback).
+  // Resolve the session token for clients that need it (e.g. OAuth callback bridge).
   // We return it only if it was already present in the request (cookie or Bearer),
   // so there is no new disclosure — the client already holds it.
   const authHeader = request.headers.get("authorization");

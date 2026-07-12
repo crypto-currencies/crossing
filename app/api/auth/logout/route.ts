@@ -8,8 +8,8 @@ const NEXTAUTH_COOKIE_CLEAR = { httpOnly: true, sameSite: "lax" as const, path: 
 
 export async function POST(request: NextRequest) {
   if (DB_AVAILABLE) {
-    // Delete the custom DB session — present as Bearer header (email/password, magic-link, OAuth) or
-    // as the session_token httpOnly cookie (magic-link cookie-only flow).
+    // Delete the custom DB session — present as Bearer header (email/password, OAuth) or
+    // as the session_token httpOnly cookie.
     const bearerToken =
       extractBearerToken(request) ?? request.cookies.get(SESSION_COOKIE)?.value;
     if (bearerToken) {

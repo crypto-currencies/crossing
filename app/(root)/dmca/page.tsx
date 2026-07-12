@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Copyright, ArrowRight, AlertTriangle, FileText, RotateCcw, ShieldX, Info } from "lucide-react";
+import { Copyright, ArrowRight, Info } from "lucide-react";
 import { LegalSideNav } from "@/components/legal/legal-side-nav";
 import type { LegalSection } from "@/components/legal/legal-side-nav";
 

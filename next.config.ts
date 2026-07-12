@@ -14,13 +14,13 @@ import type { NextConfig } from "next";
 //         Nonce-based CSP would require additional Next.js config work.
 //       - style-src: Tailwind v4 and Framer Motion emit inline style attributes
 //         at runtime; hashing them is not practical.
-//   • OAuth token exchanges (Discord, Spotify, Twitch, GitHub, Google) and
-//     Upstash Redis calls all run inside Next.js API routes — they are
-//     server-to-server and invisible to the browser's CSP engine.
+//   • OAuth token exchanges (Google) and Upstash Redis calls all run inside
+//     Next.js API routes — they are server-to-server and invisible to the
+//     browser's CSP engine.
 //
 // Enforcement switch:
-//   Set ENFORCE_CSP=true in your environment to promote the header from
-//   Content-Security-Policy-Report-Only to Content-Security-Policy.
+//   Set ENFORCE_CSP=true in your environment (production only) to promote the
+//   header from Content-Security-Policy-Report-Only to Content-Security-Policy.
 //   Default is report-only so violations surface in DevTools before breaking.
 
 function buildCsp(): string {
@@ -141,13 +141,14 @@ function buildCsp(): string {
 }
 
 // ── Enforcement switch ────────────────────────────────────────────────────────
-// Production default: Content-Security-Policy (enforced — blocks violations).
-// Set CSP_REPORT_ONLY=true to demote to report-only (log-only, no blocking).
-// In development: always report-only to avoid breaking HMR / eval.
+// Default: Content-Security-Policy-Report-Only (log-only, no blocking).
+// Set ENFORCE_CSP=true in production to promote to Content-Security-Policy
+// (enforced — blocks violations). In development: always report-only, to
+// avoid breaking HMR / eval.
 const cspHeaderName =
-  process.env.NODE_ENV !== "production" || process.env.CSP_REPORT_ONLY === "true"
-    ? "Content-Security-Policy-Report-Only"
-    : "Content-Security-Policy";
+  process.env.NODE_ENV === "production" && process.env.ENFORCE_CSP === "true"
+    ? "Content-Security-Policy"
+    : "Content-Security-Policy-Report-Only";
 
 // ─── Next.js config ───────────────────────────────────────────────────────────
 

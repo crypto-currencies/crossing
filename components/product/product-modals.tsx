@@ -21,8 +21,9 @@ export function useProductActions() {
   const { openModal, closeModal } = useUIStore();
   const { success: toastSuccess } = useToastStore();
 
-  const openLoginRequired = useCallback((reason = "Log in to continue.") => {
+  const openLoginRequired = useCallback((reason = "Log in to continue.", returnTo?: string) => {
     const id = modalId("auth-required");
+    const loginHref = returnTo ? `/login?redirect=${encodeURIComponent(returnTo)}` : "/login";
     openModal({
       id,
       component: (
@@ -38,7 +39,7 @@ export function useProductActions() {
               Keep browsing
             </Button>
             <Button variant="primary" size="md" asChild>
-              <Link href="/login" onClick={() => closeModal(id)}>
+              <Link href={loginHref} onClick={() => closeModal(id)}>
                 Log in
               </Link>
             </Button>
@@ -98,9 +99,9 @@ export function useProductActions() {
     });
   }, [closeModal, openModal, router, storeSignOut, toastSuccess]);
 
-  const guarded = useCallback((reason: string, action: () => void) => {
+  const guarded = useCallback((reason: string, action: () => void, returnTo?: string) => {
     if (!isAuthenticated) {
-      openLoginRequired(reason);
+      openLoginRequired(reason, returnTo);
       return;
     }
     action();

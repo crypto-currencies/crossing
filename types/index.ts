@@ -12,8 +12,6 @@ export interface User {
   emailVerifiedAt?: string | null;
   /** Present for the authenticated user; omitted from public responses. */
   role?: UserRole;
-  /** ISO timestamp when account deletion was requested. Null = not scheduled. Own-user only. */
-  deletionScheduledAt?: string | null;
   image: string | null;
   verified: boolean;
   onboardingCompleted?: boolean;
@@ -30,7 +28,11 @@ export interface Session {
 
 // Notifications
 
-export type NotificationType = "system" | "verification";
+export type NotificationType =
+  | "system"
+  | "verification"
+  | "submission_approved"
+  | "submission_rejected";
 
 export interface Notification {
   id: string;
@@ -39,29 +41,78 @@ export interface Notification {
   title: string;
   body: string;
   href?: string;
-  actorId?: string;
-  actorAvatar?: string | null;
   entityId?: string;
   entityType?: string;
   createdAt: string;
 }
 
-// Settings
+// Discovery domain
 
-export interface UserSettings {
-  userId: string;
-  notifications: NotificationSettings;
-  security: SecuritySettings;
+export interface CategorySummary {
+  id: string;
+  name: string;
+  slug: string;
+  icon: string | null;
 }
+
+export interface Category extends CategorySummary {
+  description: string | null;
+  position: number;
+}
+
+/**
+ * Client-facing listing shape. Deliberately omits `rankingScore` — ranking
+ * is an internal ordering signal, never a number shown to ordinary users
+ * (see docs/ranking-v0.md). Cards/pages that need ranking *context* use a
+ * boolean like `trending` instead of the raw score.
+ */
+export interface ListingCard {
+  id: string;
+  name: string;
+  slug: string;
+  tagline: string;
+  logoUrl: string | null;
+  coverImageUrl: string | null;
+  websiteUrl: string;
+  publishedAt: string;
+  saveCount: number;
+  voteCount: number;
+  category: CategorySummary;
+}
+
+export interface ListingDetail extends ListingCard {
+  description: string;
+  createdAt: string;
+  submittedBy: { id: string; name: string | null; image: string | null } | null;
+}
+
+export type SubmissionStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface Submission {
+  id: string;
+  name: string;
+  websiteUrl: string;
+  tagline: string;
+  description: string;
+  status: SubmissionStatus;
+  moderatorNote: string | null;
+  category: CategorySummary;
+  createdAt: string;
+  reviewedAt: string | null;
+  listingSlug?: string | null;
+}
+
+/** Admin-only view of a submission — includes the submitter's identity. */
+export interface AdminSubmission extends Submission {
+  submittedBy: { id: string; name: string | null; email: string | null };
+  reviewedBy: { id: string; name: string | null } | null;
+}
+
+// Settings
 
 export interface NotificationSettings {
   emailNotifications: boolean;
   pushEnabled: boolean;
-}
-
-export interface SecuritySettings {
-  twoFactorEnabled: boolean;
-  lastPasswordChange: string | null;
 }
 
 // UI types

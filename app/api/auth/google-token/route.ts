@@ -1,18 +1,15 @@
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes, createHash } from "crypto";
 import { createSession, SuspendedAccountError } from "@/lib/server/auth";
 import { DB_AVAILABLE, db } from "@/lib/db";
 import { SESSION_COOKIE, sessionCookieOptions } from "@/lib/server/session-cookie";
 import { hashIp, maskIp, parseDevice } from "@/lib/server/security";
 import { clientIp } from "@/lib/server/rate-limit";
 
-const PENDING_TTL_MS = 5 * 60 * 1000;
-
 /**
  * OAuth-to-custom-session bridge.
  *
- * Called once by /oauth-callback after Google or Discord OAuth completes.
+ * Called once by /oauth-callback after Google OAuth completes.
  * Reads the encrypted NextAuth JWT (which contains only userId), creates a
  * fresh custom DB session for that user, and returns the token so the client
  * can use it as a Bearer token for all subsequent API calls.
@@ -55,31 +52,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "no_session" }, { status: 401 });
   }
 
-  // ── 2FA gate ───────────────────────────────────────────────────────────────
-  // OAuth proves identity via the provider but does NOT satisfy TOTP. If the
-  // account has 2FA enabled, return a pending token instead of a real session.
   const oauthUser = await db.user.findUnique({
     where:  { id: userId },
-    select: { twoFactorEnabled: true, twoFactorSecret: true, suspendedAt: true },
+    select: { suspendedAt: true },
   });
 
   if (oauthUser?.suspendedAt) {
     return NextResponse.json({ error: "account_suspended" }, { status: 403 });
-  }
-
-  if (oauthUser?.twoFactorEnabled && oauthUser.twoFactorSecret) {
-    const plain     = randomBytes(32).toString("hex");
-    const tokenHash = createHash("sha256").update(plain).digest("hex");
-    const expiresAt = new Date(Date.now() + PENDING_TTL_MS);
-
-    await db.pendingLogin.deleteMany({ where: { userId } }).catch(() => {});
-    await db.pendingLogin.create({ data: { tokenHash, userId, expiresAt } });
-
-    return NextResponse.json({
-      requires2FA: true,
-      pendingToken: plain,
-      isNewUser: token?.isNewUser ?? false,
-    });
   }
 
   // Create a fresh 30-day DB session for this user.

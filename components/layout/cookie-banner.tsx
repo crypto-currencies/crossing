@@ -92,7 +92,11 @@ export function CookieBanner() {
   });
 
   useEffect(() => {
-    if (!hasValidConsent()) {
+    // Deferred to a microtask so the state updates below happen in a separate
+    // task from the effect's own invocation (avoids synchronous setState
+    // during the commit phase) while still running before the next paint.
+    queueMicrotask(() => {
+      if (hasValidConsent()) return;
       // Pre-fill custom from any prior (outdated) consent
       const prior = readConsent();
       if (prior) {
@@ -103,7 +107,7 @@ export function CookieBanner() {
         });
       }
       setVisible(true);
-    }
+    });
   }, []);
 
   function dismiss(record: ConsentRecord) {

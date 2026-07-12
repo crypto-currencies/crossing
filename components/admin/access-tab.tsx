@@ -10,15 +10,12 @@ import {
   User as UserIcon,
   AlertTriangle,
   CheckCircle2,
-  Mail,
-  KeyRound,
   Loader2,
 } from "lucide-react";
 import { relativeTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
-import { getRoleChangePhrase, normalizePhrase } from "@/lib/admin-access";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,9 +68,6 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-// Phrase generation is in lib/admin-access.ts — the same module used by the API route.
-// Do not add a local expectedPhrase() function; use getRoleChangePhrase() directly.
-
 // ─── Role change modal ────────────────────────────────────────────────────────
 
 function RoleChangeModal({
@@ -85,45 +79,11 @@ function RoleChangeModal({
   onClose:   () => void;
   onSuccess: (userId: string, newRole: string) => void;
 }) {
-  const [step, setStep]           = useState<"phrase" | "otp" | "done">("phrase");
-  const [phrase, setPhrase]       = useState("");
-  const [otp, setOtp]             = useState("");
-  const [errorMsg, setErrorMsg]   = useState<string | null>(null);
-  const [, startT]                = useTransition();
+  const [done, setDone]         = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [, startT]              = useTransition();
 
-  const expected = getRoleChangePhrase(pending.action, pending.role, pending.user.name);
-  const phraseOk = normalizePhrase(phrase) === normalizePhrase(expected);
-
-  // ── Step 1: verify phrase → request OTP ───────────────────────────────────
-  const requestCode = useCallback(() => {
-    if (!phraseOk) return;
-    setErrorMsg(null);
-    startT(async () => {
-      try {
-        const res = await fetch("/api/admin/access/request-code", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetUserId: pending.user.id,
-            targetRole:   pending.role,
-            action:       pending.action,
-          }),
-        });
-        const json = await res.json() as { ok?: boolean; error?: string };
-        if (!res.ok) {
-          setErrorMsg(json.error ?? `Server error (${res.status})`);
-          return;
-        }
-        setStep("otp");
-      } catch {
-        setErrorMsg("Network error — please try again.");
-      }
-    });
-  }, [phraseOk, pending]);
-
-  // ── Step 2: submit OTP + phrase → apply role ───────────────────────────────
   const applyRole = useCallback(() => {
-    if (otp.length !== 6) return;
     setErrorMsg(null);
     startT(async () => {
       try {
@@ -132,32 +92,21 @@ function RoleChangeModal({
           {
             method:  "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              role:          pending.role,
-              action:        pending.action,
-              code:          otp.trim(),
-              confirmPhrase: expected,
-            }),
+            body: JSON.stringify({ role: pending.role, action: pending.action }),
           }
         );
         const json = await res.json() as { ok?: boolean; error?: string; newRole?: string };
         if (!res.ok) {
-          const msg =
-            json.error === "invalid_code"      ? "Incorrect code. Check the digits and try again." :
-            json.error === "expired_code"      ? "This code has expired. Go back and send a new one." :
-            json.error === "code_already_used" ? "This code was already used. Send a new one." :
-            json.error === "wrong_phrase"      ? "Confirmation phrase mismatch." :
-            json.error ?? `Server error (${res.status})`;
-          setErrorMsg(msg);
+          setErrorMsg(json.error ?? `Server error (${res.status})`);
           return;
         }
-        setStep("done");
+        setDone(true);
         onSuccess(pending.user.id, json.newRole ?? pending.role);
       } catch {
         setErrorMsg("Network error — please try again.");
       }
     });
-  }, [expected, onSuccess, otp, pending]);
+  }, [onSuccess, pending]);
 
   const actionVerb =
     pending.action === "grant"
@@ -171,44 +120,17 @@ function RoleChangeModal({
       open
       onClose={onClose}
       title={`${actionVerb} — ${pending.user.name ?? pending.user.id}`}
-      description="Role changes require email verification. This action is logged."
+      description="This action is logged in the audit log."
       size="sm"
     >
       <div className="flex flex-col gap-[18px]">
-
-        {/* ── Step: phrase ─────────────────────────────────────────────── */}
-        {step === "phrase" && (
+        {!done ? (
           <>
-            <div className="flex flex-col gap-[8px]">
-              <p className="t-body-sm text-[var(--text-soft)]">
-                Type the following phrase exactly to confirm this action:
-              </p>
-              <div
-                className="rounded-[var(--radius-md)] px-[12px] py-[10px] font-mono t-body-sm"
-                style={{ background: "var(--panel-2)", border: "1px solid var(--border)", color: "var(--text)" }}
-              >
-                {expected}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-[4px]">
-              <Input
-                value={phrase}
-                onChange={(e) => setPhrase(e.target.value)}
-                placeholder={expected}
-                className="font-mono"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              {phrase.length > 0 && !phraseOk && (
-                <p className="t-caption text-[var(--danger)]">Phrase does not match.</p>
-              )}
-              {phraseOk && (
-                <p className="flex items-center gap-[4px] t-caption text-[var(--success)]">
-                  <CheckCircle2 className="size-3" /> Phrase confirmed.
-                </p>
-              )}
-            </div>
+            <p className="t-body-sm text-[var(--text-soft)]">
+              {pending.action === "grant"
+                ? `Grant ${pending.role.toLowerCase()} access to ${pending.user.name ?? pending.user.id}?`
+                : `Revoke elevated access from ${pending.user.name ?? pending.user.id}?`}
+            </p>
 
             {errorMsg && (
               <p className="flex items-center gap-[6px] t-caption text-[var(--danger)]">
@@ -218,78 +140,12 @@ function RoleChangeModal({
 
             <div className="flex justify-end gap-[8px]">
               <Button variant="ghost" size="md" onClick={onClose}>Cancel</Button>
-              <Button
-                variant="primary"
-                size="md"
-                disabled={!phraseOk}
-                onClick={requestCode}
-              >
-                <Mail className="size-3.5" />
-                Send verification code
+              <Button variant="primary" size="md" onClick={applyRole}>
+                Confirm
               </Button>
             </div>
           </>
-        )}
-
-        {/* ── Step: OTP ────────────────────────────────────────────────── */}
-        {step === "otp" && (
-          <>
-            <div
-              className="flex items-start gap-[10px] rounded-[var(--radius-md)] px-[12px] py-[10px]"
-              style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.2)" }}
-            >
-              <Mail className="size-4 text-[var(--accent-text)] flex-shrink-0 mt-[1px]" />
-              <p className="t-body-sm text-[var(--text-soft)]">
-                A 6-digit code was sent to <strong className="text-[var(--text)]">admins@crossing.dev</strong>.
-                It expires in 10 minutes and can only be used once.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-[4px]">
-              <label className="t-caption text-[var(--muted)]">Verification code</label>
-              <Input
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="000000"
-                className="font-mono text-center tracking-[0.3em] text-[18px]"
-                autoComplete="one-time-code"
-                inputMode="numeric"
-                maxLength={6}
-              />
-            </div>
-
-            {errorMsg && (
-              <p className="flex items-center gap-[6px] t-caption text-[var(--danger)]">
-                <AlertTriangle className="size-3.5" /> {errorMsg}
-              </p>
-            )}
-
-            <div className="flex justify-between gap-[8px]">
-              <button
-                type="button"
-                className="t-caption text-[var(--muted)] hover:text-[var(--text-soft)] transition-colors"
-                onClick={() => { setStep("phrase"); setOtp(""); setErrorMsg(null); }}
-              >
-                ← Back
-              </button>
-              <div className="flex gap-[8px]">
-                <Button variant="ghost" size="md" onClick={onClose}>Cancel</Button>
-                <Button
-                  variant="primary"
-                  size="md"
-                  disabled={otp.length !== 6}
-                  onClick={applyRole}
-                >
-                  <KeyRound className="size-3.5" />
-                  Apply role change
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ── Step: done ───────────────────────────────────────────────── */}
-        {step === "done" && (
+        ) : (
           <>
             <div className="flex flex-col items-center gap-[12px] py-[12px]">
               <CheckCircle2 className="size-10 text-[var(--success)]" />
@@ -480,9 +336,8 @@ export function AccessTab() {
       >
         <ShieldCheck className="size-4 text-[var(--accent-text)] flex-shrink-0 mt-[1px]" />
         <div className="t-body-sm text-[var(--text-soft)]">
-          <strong className="text-[var(--text)]">Role changes require email verification.</strong>{" "}
-          Every grant and revoke sends a one-time code to{" "}
-          <span className="text-[var(--text)]">admins@crossing.dev</span> and is permanently logged.
+          <strong className="text-[var(--text)]">Role changes are permanently logged.</strong>{" "}
+          Every grant and revoke is recorded in the audit log.
           OWNER status cannot be granted through this panel.
         </div>
       </div>

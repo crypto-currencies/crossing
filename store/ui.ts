@@ -12,7 +12,6 @@ interface UIState {
   sidebarPinned: boolean;
   modals: Modal[];
   activeModal: string | null;
-  searchOpen: boolean;
 }
 
 interface UIActions {
@@ -26,8 +25,6 @@ interface UIActions {
   openModal: (modal: Modal) => void;
   closeModal: (id: string) => void;
   closeAllModals: () => void;
-  openSearch: () => void;
-  closeSearch: () => void;
 }
 
 type UIStore = UIState & UIActions;
@@ -39,7 +36,6 @@ export const useUIStore = create<UIStore>()((set) => ({
   sidebarPinned: false,
   modals: [],
   activeModal: null,
-  searchOpen: false,
 
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
@@ -76,7 +72,4 @@ export const useUIStore = create<UIStore>()((set) => ({
     }),
 
   closeAllModals: () => set({ modals: [], activeModal: null }),
-
-  openSearch: () => set({ searchOpen: true }),
-  closeSearch: () => set({ searchOpen: false }),
 }));

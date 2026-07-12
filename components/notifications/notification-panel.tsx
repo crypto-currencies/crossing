@@ -9,6 +9,7 @@ import {
   Settings,
   CheckCheck,
   BadgeCheck,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNotificationsStore } from "@/store/notifications";
@@ -20,8 +21,10 @@ import type { Notification } from "@/types";
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const TYPE_ICONS: Record<Notification["type"], React.ElementType> = {
-  verification: BadgeCheck,
-  system:       Settings,
+  verification:         BadgeCheck,
+  system:               Settings,
+  submission_approved:  CheckCheck,
+  submission_rejected:  XCircle,
 };
 
 type PanelTab = "all" | "unread";

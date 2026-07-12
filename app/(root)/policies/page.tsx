@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ShieldCheck, ArrowRight, ShieldX, AlertTriangle, Scale, Info } from "lucide-react";
+import { ShieldCheck, ArrowRight, ShieldX, Scale, Info } from "lucide-react";
 import { LegalSideNav } from "@/components/legal/legal-side-nav";
 import type { LegalSection } from "@/components/legal/legal-side-nav";
 

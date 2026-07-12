@@ -50,14 +50,6 @@ export function emailFallbackUrl(url: string): string {
     <p style="color:#5a5a75;font-size:11px;word-break:break-all;margin:0;background:#06060f;padding:10px 12px;border-radius:6px;border:1px solid #161628;font-family:'Courier New',Courier,monospace;">${url}</p>`;
 }
 
-export function emailOtpBlock(code: string, expiryNote?: string): string {
-  return `<div style="background:#0a0a14;border:1px solid rgba(167,139,250,0.22);border-radius:12px;padding:28px;margin:0 0 20px;text-align:center;">
-      <p style="color:#6b6b80;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 12px;font-weight:600;">Verification code</p>
-      <p style="font-size:40px;font-weight:800;letter-spacing:12px;color:#ffffff;margin:0;font-family:'Courier New',Courier,monospace;">${code}</p>
-      <p style="color:#4a4a60;font-size:12px;margin:12px 0 0;">${expiryNote ?? "Expires in 10 minutes &middot; One-time use"}</p>
-    </div>`;
-}
-
 export function emailBodyText(text: string): string {
   return `<p style="color:#9191a4;font-size:14px;line-height:1.7;margin:0 0 24px;">${text}</p>`;
 }

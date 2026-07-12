@@ -8,6 +8,8 @@ import {
   X,
   Settings,
   BadgeCheck,
+  CheckCheck,
+  XCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn, relativeTime } from "@/lib/utils";
@@ -15,7 +17,6 @@ import { useAuthStore } from "@/store/auth";
 import { useNotificationsStore } from "@/store/notifications";
 import { markNotifRead, markAllNotifsRead, dismissNotif } from "@/lib/services/notify";
 import { Button } from "@/components/ui/button";
-import { Avatar } from "@/components/ui/avatar";
 import type { Notification } from "@/types";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -24,8 +25,10 @@ const TYPE_META: Record<
   Notification["type"],
   { label: string; icon: React.ElementType; color: string }
 > = {
-  verification: { label: "Verified", icon: BadgeCheck, color: "text-[var(--success)]" },
-  system:       { label: "System",   icon: Settings,   color: "text-[var(--text-soft)]" },
+  verification:         { label: "Verified", icon: BadgeCheck, color: "text-[var(--success)]" },
+  system:               { label: "System",   icon: Settings,   color: "text-[var(--text-soft)]" },
+  submission_approved:  { label: "Approved", icon: CheckCheck, color: "text-[var(--success)]" },
+  submission_rejected:  { label: "Rejected", icon: XCircle,    color: "text-[var(--danger)]" },
 };
 
 type FilterKey = Notification["type"] | "all" | "unread";
@@ -63,11 +66,7 @@ function NotifRow({ notif }: { notif: Notification }) {
           "flex size-10 items-center justify-center rounded-full",
           notif.read ? "bg-[var(--panel-2)]" : "bg-[rgba(255,255,255,0.04)]"
         )}>
-          {notif.actorAvatar !== undefined ? (
-            <Avatar src={notif.actorAvatar ?? null} alt="" size="sm" />
-          ) : (
-            <Icon className={cn("size-5", notif.read ? "text-[var(--text-soft)]" : meta.color)} />
-          )}
+          <Icon className={cn("size-5", notif.read ? "text-[var(--text-soft)]" : meta.color)} />
         </div>
         {!notif.read && (
           <span className="absolute -top-[1px] -right-[1px] size-[8px] rounded-full bg-white border-2 border-[var(--panel)]" />

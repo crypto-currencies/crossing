@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { AccessTab } from "@/components/admin/access-tab";
-import { useStepUp } from "@/hooks/use-step-up";
+import { SubmissionsTab } from "@/components/admin/submissions-tab";
 import {
   Search,
   ShieldCheck,
@@ -19,11 +19,7 @@ import {
   RotateCcw,
   ScrollText,
   BarChart2,
-  LifeBuoy,
-  MessageCircle,
-  Send,
-  Filter,
-  RefreshCw,
+  Inbox,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn, relativeTime } from "@/lib/utils";
@@ -64,7 +60,7 @@ interface AuditEntry {
   target:    { id: string; name: string | null } | null;
 }
 
-type Tab = "overview" | "users" | "tickets" | "access" | "audit";
+type Tab = "overview" | "submissions" | "users" | "access" | "audit";
 
 // ─── Overview stats ────────────────────────────────────────────────────────────
 
@@ -142,9 +138,6 @@ function UserRow({
   const [suspendReason,  setSuspendReason]  = useState("");
   const [confirmSuspend, setConfirmSuspend] = useState(false);
 
-  // Step-up verification — required for suspend and verify
-  const { withStepUp, handleStepUpRequired, isVerified, secondsLeft, StepUpGate } = useStepUp();
-
   const doAction = useCallback(
     async (
       endpoint: string,
@@ -163,11 +156,6 @@ function UserRow({
         let data: Record<string, unknown> = {};
         try { data = await res.json() as typeof data; } catch { /* non-JSON body */ }
         if (!res.ok) {
-          if (data.error === "step_up_required") {
-            // Session expired mid-session — clear cache and re-open modal
-            handleStepUpRequired(() => void doAction(endpoint, body, key));
-            return;
-          }
           setActionError(
             typeof data.error === "string" ? data.error : `Server error (${res.status})`
           );
@@ -182,7 +170,7 @@ function UserRow({
         setActionLoading(null);
       }
     },
-    [user.id, onUpdate, handleStepUpRequired]
+    [user.id, onUpdate]
   );
 
   const isSuspended = !!user.suspendedAt;
@@ -339,23 +327,12 @@ function UserRow({
                   Actions
                 </p>
 
-                {/* Step-up status badge */}
-                {isVerified && (
-                  <div className="flex items-center gap-[5px] rounded-[7px] px-[8px] py-[4px] w-fit"
-                    style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.18)" }}>
-                    <span className="size-[5px] rounded-full bg-[var(--success)]" />
-                    <p className="text-[10px] font-medium text-[var(--success)]">
-                      Verified · {Math.floor(secondsLeft / 60)}m {secondsLeft % 60}s left
-                    </p>
-                  </div>
-                )}
-
               {/* Verify / Suspend row */}
                 <div className="flex flex-wrap gap-[6px]">
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => withStepUp(() => doAction("verify", { verified: !user.verified }, "verify"))}
+                    onClick={() => doAction("verify", { verified: !user.verified }, "verify")}
                     disabled={actionLoading === "verify"}
                     className="gap-[6px]"
                   >
@@ -380,9 +357,7 @@ function UserRow({
                             size="sm"
                             variant="secondary"
                             onClick={() => {
-                              withStepUp(() => {
-                                void doAction("status", { suspended: true, reason: suspendReason }, "suspend");
-                              });
+                              void doAction("status", { suspended: true, reason: suspendReason }, "suspend");
                               setConfirmSuspend(false);
                             }}
                             disabled={actionLoading === "suspend"}
@@ -415,7 +390,7 @@ function UserRow({
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={() => withStepUp(() => doAction("status", { suspended: false }, "unsuspend"))}
+                      onClick={() => doAction("status", { suspended: false }, "unsuspend")}
                       disabled={actionLoading === "unsuspend"}
                       className="gap-[6px]"
                     >
@@ -429,9 +404,6 @@ function UserRow({
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Step-up modal — portal-rendered, null when inactive */}
-      {StepUpGate}
     </div>
   );
 }
@@ -619,8 +591,12 @@ function AuditTab() {
     }
   }, [fetched]);
 
-  // Lazy-load on first render of this tab
-  useEffect(() => { void load(); }, [load]);
+  // Lazy-load on first render of this tab. Deferred to a microtask so the
+  // fetch kickoff (and its synchronous setLoading/setError calls) run in a
+  // separate task from the effect's own invocation.
+  useEffect(() => {
+    queueMicrotask(() => { void load(); });
+  }, [load]);
 
   if (loading && !fetched) {
     return (
@@ -708,315 +684,6 @@ function AuditTab() {
   );
 }
 
-// ─── Admin Tickets tab ────────────────────────────────────────────────────────
-
-interface AdminTicket {
-  id:         string;
-  category:   string;
-  status:     string;
-  priority:   string;
-  subject:    string;
-  createdAt:  string;
-  updatedAt:  string;
-  resolvedAt: string | null;
-  user:       { id: string; name: string | null; email: string | null };
-  messages:   { id: string; body: string; isAdmin: boolean; senderId: string; createdAt: string }[];
-  _count:     { messages: number };
-}
-
-const TICKET_STATUS_COLORS: Record<string, string> = {
-  open:          "var(--accent-text)",
-  under_review:  "#f59e0b",
-  awaiting_user: "#a78bfa",
-  resolved:      "var(--success)",
-  dismissed:     "var(--muted)",
-};
-const TICKET_PRIORITY_COLORS: Record<string, string> = {
-  low:    "var(--muted)",
-  medium: "#60a5fa",
-  high:   "#f59e0b",
-  urgent: "var(--danger)",
-};
-
-function AdminTicketDetail({ ticket, onBack, onUpdated }: {
-  ticket:    AdminTicket;
-  onBack:    () => void;
-  onUpdated: (t: AdminTicket) => void;
-}) {
-  const [full, setFull]         = useState<AdminTicket | null>(null);
-  const [reply, setReply]       = useState("");
-  const [setStatus, setSetStatus] = useState<string>("");
-  const [sending, setSending]   = useState(false);
-  const [error, setError]       = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(`/api/admin/tickets/${ticket.id}`)
-      .then((r) => r.json())
-      .then((j: { ticket?: AdminTicket }) => { if (j.ticket) setFull(j.ticket); })
-      .catch(() => {});
-  }, [ticket.id]);
-
-  const t = full ?? ticket;
-  const isClosed = ["resolved","dismissed"].includes(t.status);
-
-  const sendReply = useCallback(async () => {
-    if (!reply.trim()) return;
-    setSending(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/admin/tickets/${ticket.id}/messages`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: reply.trim(), setStatus: setStatus || undefined }),
-      });
-      const json = await res.json() as { message?: { id: string; body: string; isAdmin: boolean; senderId: string; createdAt: string }; error?: string };
-      if (!res.ok) { setError(json.error ?? "Failed to send."); return; }
-      const msg = json.message;
-      if (msg) {
-        const newStatus = setStatus || "awaiting_user";
-        const updated = { ...t, status: newStatus, updatedAt: new Date().toISOString(), messages: [...t.messages, msg] };
-        setFull(updated);
-        onUpdated(updated);
-        setReply("");
-        setSetStatus("");
-      }
-    } catch { setError("Network error."); }
-    finally { setSending(false); }
-  }, [onUpdated, reply, setStatus, t, ticket.id]);
-
-  const updateStatus = useCallback(async (newStatus: string) => {
-    try {
-      const res = await fetch(`/api/admin/tickets/${ticket.id}/status`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      const json = await res.json() as { ticket?: AdminTicket };
-      if (res.ok && json.ticket) {
-        const updated = { ...t, status: newStatus, updatedAt: new Date().toISOString() };
-        setFull(updated);
-        onUpdated(updated);
-      }
-    } catch { /* ignore */ }
-  }, [onUpdated, t, ticket.id]);
-
-  return (
-    <div className="flex flex-col gap-[14px]">
-      <button type="button" onClick={onBack}
-        className="flex items-center gap-[6px] text-[11px] text-[var(--muted)] hover:text-[var(--text)] transition-colors w-fit">
-        <ChevronDown className="size-3.5 rotate-90" /> Back to queue
-      </button>
-
-      {/* Header */}
-      <div className="rounded-[12px] border border-[var(--border)] bg-[var(--panel)] p-[14px]">
-        <div className="flex items-start justify-between gap-[8px] flex-wrap">
-          <div>
-            <p className="text-[14px] font-semibold text-[var(--text)]">{t.subject}</p>
-            <p className="text-[10px] text-[var(--muted)] mt-[2px]">
-              #{t.id.slice(-8).toUpperCase()} · {t.category} ·
-              by {t.user.name ?? t.user.email ?? t.user.id.slice(0,8)} ·
-              {relativeTime(t.createdAt)}
-            </p>
-          </div>
-          <div className="flex items-center gap-[6px] flex-wrap">
-            <span className="rounded-full px-[7px] py-[2px] text-[10px] font-bold"
-              style={{ color: TICKET_STATUS_COLORS[t.status], background: `${TICKET_STATUS_COLORS[t.status]}18`, border: `1px solid ${TICKET_STATUS_COLORS[t.status]}28` }}>
-              {t.status.replace("_"," ")}
-            </span>
-            <span className="rounded-full px-[7px] py-[2px] text-[10px] font-bold"
-              style={{ color: TICKET_PRIORITY_COLORS[t.priority], background: `${TICKET_PRIORITY_COLORS[t.priority]}18`, border: `1px solid ${TICKET_PRIORITY_COLORS[t.priority]}28` }}>
-              {t.priority}
-            </span>
-          </div>
-        </div>
-        {/* Quick status actions */}
-        <div className="flex gap-[5px] mt-[10px] flex-wrap">
-          {["open","under_review","awaiting_user","resolved","dismissed"].map((s) => (
-            <button key={s} type="button" disabled={t.status === s} onClick={() => void updateStatus(s)}
-              className={cn("px-[8px] py-[3px] rounded-[6px] text-[10px] font-medium transition-colors",
-                t.status === s
-                  ? "opacity-50 cursor-default"
-                  : "border border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--border-strong)]")}>
-              {s.replace("_"," ")}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div className="flex flex-col gap-[6px]">
-        {t.messages.map((msg) => (
-          <div key={msg.id} className={cn("flex", msg.isAdmin ? "justify-start" : "justify-end")}>
-            <div className={cn("max-w-[80%] rounded-[11px] px-[12px] py-[9px]",
-              msg.isAdmin
-                ? "bg-[rgba(109,40,217,0.10)] border border-[rgba(109,40,217,0.22)]"
-                : "bg-[var(--panel)] border border-[var(--border)]")}>
-              <p className="text-[10px] font-semibold mb-[3px]" style={{ color: msg.isAdmin ? "var(--accent-text)" : "var(--muted)" }}>
-                {msg.isAdmin ? "Admin" : (t.user.name ?? "User")}
-              </p>
-              <p className="text-[12px] text-[var(--text-soft)] whitespace-pre-wrap leading-relaxed">{msg.body}</p>
-              <p className="text-[10px] text-[var(--muted)] mt-[3px]">{relativeTime(msg.createdAt)}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Reply */}
-      {!isClosed && (
-        <div className="flex flex-col gap-[8px] rounded-[12px] border border-[var(--border)] bg-[var(--panel)] p-[12px]">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.10em] text-[var(--muted)]">Reply</p>
-          <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3}
-            placeholder="Write a reply to the user…"
-            className="w-full resize-none rounded-[8px] border border-[var(--border)] bg-[var(--panel-2)] px-[10px] py-[8px] text-[12px] text-[var(--text)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none transition-colors"
-          />
-          <div className="flex items-center gap-[8px] flex-wrap">
-            <select value={setStatus} onChange={(e) => setSetStatus(e.target.value)}
-              className="rounded-[7px] border border-[var(--border)] bg-[var(--panel-2)] px-[8px] py-[5px] text-[11px] text-[var(--text)] focus:outline-none">
-              <option value="">Status: awaiting reply (default)</option>
-              <option value="open">Set status: open</option>
-              <option value="under_review">Set status: under review</option>
-              <option value="resolved">Set status: resolved</option>
-              <option value="dismissed">Set status: dismissed</option>
-            </select>
-            <Button variant="primary" size="sm" disabled={!reply.trim() || sending}
-              onClick={() => void sendReply()}>
-              <Send className="size-[11px]" />
-              {sending ? "Sending…" : "Send reply"}
-            </Button>
-          </div>
-          {error && <p className="text-[11px] text-[var(--danger)]">{error}</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TicketsTab() {
-  const [tickets, setTickets]     = useState<AdminTicket[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [fetched, setFetched]     = useState(false);
-  const [selected, setSelected]   = useState<AdminTicket | null>(null);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState("");
-
-  const load = useCallback(async (force = false) => {
-    if (fetched && !force) return;
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ limit: "50" });
-      if (statusFilter)   params.set("status",   statusFilter);
-      if (priorityFilter) params.set("priority", priorityFilter);
-      const res  = await fetch(`/api/admin/tickets?${params.toString()}`);
-      const json = await res.json() as { tickets?: AdminTicket[] };
-      setTickets(json.tickets ?? []);
-      setFetched(true);
-    } catch { /* ignore */ }
-    finally { setLoading(false); }
-  }, [fetched, statusFilter, priorityFilter]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  if (selected) {
-    return (
-      <AdminTicketDetail
-        ticket={selected}
-        onBack={() => setSelected(null)}
-        onUpdated={(t) => {
-          setSelected(t);
-          setTickets((prev) => prev.map((x) => x.id === t.id ? t : x));
-        }}
-      />
-    );
-  }
-
-  const openCount     = tickets.filter((t) => t.status === "open").length;
-  const reviewCount   = tickets.filter((t) => t.status === "under_review").length;
-  const awaitingCount = tickets.filter((t) => t.status === "awaiting_user").length;
-
-  return (
-    <div className="flex flex-col gap-[14px]">
-      {/* Stats strip */}
-      {fetched && (
-        <div className="grid grid-cols-3 gap-[8px]">
-          {[
-            { label: "Open",          value: openCount,     color: "var(--accent-text)" },
-            { label: "Under review",  value: reviewCount,   color: "#f59e0b"            },
-            { label: "Awaiting user", value: awaitingCount, color: "#a78bfa"            },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="rounded-[11px] border border-[var(--border)] bg-[var(--panel)] p-[12px] text-center">
-              <p className="text-[22px] font-bold tabular-nums" style={{ color }}>{value}</p>
-              <p className="text-[9px] uppercase tracking-[0.08em] text-[var(--muted)] mt-[2px]">{label}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="flex items-center gap-[8px] flex-wrap">
-        <Filter className="size-[12px] text-[var(--muted)] flex-shrink-0" />
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setFetched(false); }}
-          className="rounded-[7px] border border-[var(--border)] bg-[var(--panel-2)] px-[8px] py-[5px] text-[11px] text-[var(--text)] focus:outline-none">
-          <option value="">All statuses</option>
-          <option value="open">Open</option>
-          <option value="under_review">Under review</option>
-          <option value="awaiting_user">Awaiting user</option>
-          <option value="resolved">Resolved</option>
-          <option value="dismissed">Dismissed</option>
-        </select>
-        <select value={priorityFilter} onChange={(e) => { setPriorityFilter(e.target.value); setFetched(false); }}
-          className="rounded-[7px] border border-[var(--border)] bg-[var(--panel-2)] px-[8px] py-[5px] text-[11px] text-[var(--text)] focus:outline-none">
-          <option value="">All priorities</option>
-          <option value="urgent">Urgent</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
-        <button type="button" onClick={() => { setFetched(false); }}
-          className="flex items-center gap-[5px] text-[11px] text-[var(--muted)] hover:text-[var(--text)] transition-colors">
-          <RefreshCw className={cn("size-3", loading && "animate-spin")} /> Refresh
-        </button>
-      </div>
-
-      {/* Ticket list */}
-      {loading && !fetched ? (
-        <div className="flex flex-col gap-[5px]">
-          {[0,1,2,3].map((i) => <div key={i} className="h-[56px] animate-pulse rounded-[10px]" style={{ background: "var(--panel-2)" }} />)}
-        </div>
-      ) : tickets.length === 0 ? (
-        <div className="flex flex-col items-center gap-[10px] rounded-[14px] py-[48px] text-center"
-          style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
-          <LifeBuoy className="size-[22px] text-[var(--muted)]" />
-          <p className="text-[13px] font-medium text-[var(--text-soft)]">No tickets</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-[4px]">
-          {tickets.map((t) => (
-            <button key={t.id} type="button" onClick={() => setSelected(t)}
-              className="flex items-center gap-[12px] rounded-[10px] border border-[var(--border)] bg-[var(--panel)] px-[12px] py-[10px] text-left hover:border-[var(--border-strong)] transition-colors w-full">
-              <MessageCircle className="size-[14px] flex-shrink-0 text-[var(--muted)]" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-[6px] flex-wrap">
-                  <p className="text-[12px] font-semibold text-[var(--text)] truncate">{t.subject}</p>
-                  <span className="text-[10px] font-bold rounded-full px-[6px] py-[1px]"
-                    style={{ color: TICKET_STATUS_COLORS[t.status], background: `${TICKET_STATUS_COLORS[t.status]}18` }}>
-                    {t.status.replace("_"," ")}
-                  </span>
-                  <span className="text-[10px] font-bold rounded-full px-[6px] py-[1px]"
-                    style={{ color: TICKET_PRIORITY_COLORS[t.priority], background: `${TICKET_PRIORITY_COLORS[t.priority]}18` }}>
-                    {t.priority}
-                  </span>
-                </div>
-                <p className="text-[10px] text-[var(--muted)] mt-[1px]">
-                  {t.user.name ?? "?"} · {t.category} · {relativeTime(t.updatedAt)} · {t._count.messages} msg{t._count.messages !== 1 ? "s" : ""}
-                </p>
-              </div>
-              <ChevronDown className="size-[12px] text-[var(--muted)] -rotate-90 flex-shrink-0" />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Root client component ─────────────────────────────────────────────────────
 
 export function AdminClient({
@@ -1032,9 +699,9 @@ export function AdminClient({
 
   // "access" tab calls requireOwnerApi — only show to OWNER.
   const ALL_TABS: { key: Tab; label: string; icon: React.ElementType; ownerOnly?: boolean }[] = [
-    { key: "overview",  label: "Overview",  icon: BarChart2              },
-    { key: "users",     label: "Users",     icon: Users                  },
-    { key: "tickets",   label: "Tickets",   icon: LifeBuoy               },
+    { key: "overview",     label: "Overview",     icon: BarChart2 },
+    { key: "submissions",  label: "Submissions",  icon: Inbox     },
+    { key: "users",        label: "Users",        icon: Users     },
     { key: "access",    label: "Access",    icon: ShieldCheck, ownerOnly: true },
     { key: "audit",     label: "Audit log", icon: ScrollText             },
   ];
@@ -1096,9 +763,9 @@ export function AdminClient({
 
       {/* Tab content */}
       <div>
-        {tab === "overview"  && <OverviewTab stats={stats} />}
-        {tab === "users"     && <UsersTab />}
-        {tab === "tickets"   && <TicketsTab />}
+        {tab === "overview"     && <OverviewTab stats={stats} />}
+        {tab === "submissions"  && <SubmissionsTab />}
+        {tab === "users"        && <UsersTab />}
         {tab === "access"    && isOwner && <AccessTab />}
         {tab === "audit"     && <AuditTab />}
       </div>

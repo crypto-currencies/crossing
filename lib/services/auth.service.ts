@@ -20,14 +20,6 @@ interface AuthResponse {
   isNewUser?: boolean;
 }
 
-/** Returned by signIn when the account has 2FA enabled. */
-export interface TwoFactorChallenge {
-  requires2FA: true;
-  pendingToken: string;
-}
-
-export type SignInResult = Session | TwoFactorChallenge;
-
 function toSession(r: AuthResponse): Session & { isNewUser?: boolean } {
   return { token: r.token, expiresAt: r.expiresAt, user: r.user, isNewUser: r.isNewUser };
 }
@@ -35,10 +27,9 @@ function toSession(r: AuthResponse): Session & { isNewUser?: boolean } {
 export const authService = {
   /**
    * Sign in with email + password.
-   * Returns a Session on success, a TwoFactorChallenge if TOTP is required,
-   * or throws an Error whose message is the API error code.
+   * Throws an Error whose message is the API error code.
    */
-  async signIn(input: SignInInput): Promise<SignInResult> {
+  async signIn(input: SignInInput): Promise<Session> {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -47,27 +38,6 @@ export const authService = {
     if (!res.ok) {
       const json = await res.json().catch(() => ({})) as { error?: string };
       throw new Error(json.error ?? "invalid_credentials");
-    }
-    const data = await res.json() as AuthResponse & { requires2FA?: boolean; pendingToken?: string };
-    if (data.requires2FA && data.pendingToken) {
-      return { requires2FA: true, pendingToken: data.pendingToken };
-    }
-    return toSession(data);
-  },
-
-  /**
-   * Complete a 2FA-protected login. Called after signIn returns TwoFactorChallenge.
-   * Throws an Error whose message is the API error code (e.g. "invalid_code").
-   */
-  async verify2FA(pendingToken: string, code: string): Promise<Session> {
-    const res = await fetch("/api/auth/login/2fa", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pendingToken, code }),
-    });
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({})) as { error?: string };
-      throw new Error(json.error ?? "invalid_code");
     }
     const data = await res.json() as AuthResponse;
     return toSession(data);
@@ -122,27 +92,6 @@ export const authService = {
   },
 
   /**
-   * Validates the current session using only the httpOnly cookie (no Bearer token).
-   * Used by the magic-link callback after the verify route sets the cookie without
-   * putting the session token in the URL.
-   */
-  async validateSessionFromCookie(): Promise<Session | null> {
-    try {
-      const res = await fetch("/api/auth/session");
-      if (!res.ok) return null;
-      const data = await res.json() as { user: User; token?: string };
-      if (!data.user || !data.token) return null;
-      return {
-        token: data.token,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        user: data.user,
-      };
-    } catch {
-      return null;
-    }
-  },
-
-  /**
    * Fetches the current user from /api/me using only cookies (no Bearer header).
    * Used as a fallback when the Zustand Bearer token is invalid but a valid
    * session cookie (session_token or next-auth.session-token) still exists.
@@ -169,19 +118,6 @@ export const authService = {
       method: "POST",
       headers: token ? { ...authHeaders(), Authorization: `Bearer ${token}` } : authHeaders(),
     }).catch(() => {});
-  },
-
-  /** Sends a magic-link email to the given address. */
-  async sendMagicLink(email: string): Promise<void> {
-    const res = await fetch("/api/auth/magic-link/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({})) as { error?: string };
-      throw new Error(json.error ?? "send_failed");
-    }
   },
 
   /** Changes the authenticated user's password.

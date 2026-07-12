@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, Bell, Menu, X, ChevronDown, ShieldCheck } from "lucide-react";
+import { Search, Bell, Menu, X, ChevronDown, ShieldCheck, Bookmark, SquarePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { useUIStore } from "@/store/ui";
@@ -18,8 +19,9 @@ interface NavProps {
 }
 
 export function Nav({ showSidebarToggle = false }: NavProps) {
+  const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
-  const { toggleSidebar, sidebarOpen, openSearch } = useUIStore();
+  const { toggleSidebar, sidebarOpen } = useUIStore();
   const { openSignOutConfirm } = useProductActions();
   const { unreadCount, togglePanel } = useNotificationsStore();
 
@@ -45,12 +47,12 @@ export function Nav({ showSidebarToggle = false }: NavProps) {
         ((e.metaKey || e.ctrlKey) && e.key === "k")
       ) {
         e.preventDefault();
-        openSearch();
+        router.push("/search");
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [openSearch]);
+  }, [router]);
 
   return (
     /*
@@ -96,9 +98,8 @@ export function Nav({ showSidebarToggle = false }: NavProps) {
         <div className="flex items-center gap-[10px]">
 
           {/* Search trigger — large screens */}
-          <button
-            type="button"
-            onClick={openSearch}
+          <Link
+            href="/search"
             className={cn(
               "button hidden h-[36px] items-center gap-[8px] rounded-[var(--radius-md)]",
               "border border-[var(--border)] bg-[rgba(255,255,255,0.04)]",
@@ -112,21 +113,42 @@ export function Nav({ showSidebarToggle = false }: NavProps) {
             <Search className="size-3.5 flex-shrink-0" />
             <span className="flex-1 text-left" style={{ fontSize: 12 }}>Search</span>
             <kbd className="kbd">/</kbd>
-          </button>
+          </Link>
 
-          {/* Search icon — small screens */}
+          {/* Search icon — visible at every width the full bar isn't (down to the smallest phones) */}
           <Button
             variant="ghost"
             size="icon"
-            className={cn("hidden", !isAuthenticated && "sm:flex lg:hidden")}
-            onClick={openSearch}
-            aria-label="Search"
+            className={cn("flex", isAuthenticated ? "xl:hidden" : "lg:hidden")}
+            asChild
           >
-            <Search className="size-4" />
+            <Link href="/search" aria-label="Search">
+              <Search className="size-4" />
+            </Link>
+          </Button>
+
+          {/* Submit — core consumer destination, always visible */}
+          <Button variant="ghost" size="icon" className="sm:hidden" asChild>
+            <Link href="/submit" aria-label="Submit a listing">
+              <SquarePlus className="size-4" />
+            </Link>
+          </Button>
+          <Button variant="ghost" size="sm" className="hidden sm:flex" asChild>
+            <Link href="/submit" className="flex items-center gap-[6px]" style={{ fontSize: 12 }}>
+              <SquarePlus className="size-[14px]" />
+              <span className="hidden md:inline">Submit</span>
+            </Link>
           </Button>
 
           {isAuthenticated ? (
             <>
+              {/* Saved */}
+              <Button variant="ghost" size="icon" asChild>
+                <Link href="/saved" aria-label="Saved listings">
+                  <Bookmark className="size-4" />
+                </Link>
+              </Button>
+
               {/* Admin button — ADMIN / OWNER only */}
               {(user?.role === "OWNER" || user?.role === "ADMIN") && (
                 <Button variant="ghost" size="sm" asChild>
@@ -249,8 +271,9 @@ function UserMenu({
             style={{ zIndex: 80 }}
           >
             {([
-              { label: "Dashboard", href: "/dashboard" },
-              { label: "Settings",  href: "/settings"  },
+              { label: "Dashboard",     href: "/dashboard"   },
+              { label: "My submissions", href: "/submissions" },
+              { label: "Settings",      href: "/settings"    },
             ] as const).map(({ label, href }) => (
               <button
                 key={href}

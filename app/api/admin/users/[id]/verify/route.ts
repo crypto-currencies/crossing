@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { db, DB_AVAILABLE } from "@/lib/db";
 import { requireOwnerApi, writeAuditLog } from "@/lib/server/admin";
 import { canModifyUser } from "@/lib/server/auth";
-import { requireStepUp } from "@/lib/server/step-up";
 
 // ─── PATCH /api/admin/users/[id]/verify ──────────────────────────────────────
 // Grant or revoke the verified badge.
@@ -20,15 +19,6 @@ export async function PATCH(
   const admin = await requireOwnerApi(request);
   if (!admin) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-
-  // ── Step-up verification required ────────────────────────────────────────
-  const verified = await requireStepUp(admin.id);
-  if (!verified) {
-    return NextResponse.json(
-      { error: "step_up_required", message: "This action requires step-up verification." },
-      { status: 403 }
-    );
   }
 
   const { id: targetId } = await params;

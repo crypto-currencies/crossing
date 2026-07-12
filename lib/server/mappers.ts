@@ -20,11 +20,6 @@ export function mapUser(u: DbUser, opts?: { includeEmail?: boolean }): User {
       ? { emailVerifiedAt: u.emailVerifiedAt?.toISOString() ?? null }
       : {}),
     ...(includePrivateFields ? { role: u.role as User["role"] } : {}),
-    // Surfaced so the client can show the "deletion scheduled" banner with a
-    // cancel option during the 7-day grace period. Own-user endpoints only.
-    ...(includePrivateFields
-      ? { deletionScheduledAt: u.deletionScheduledAt?.toISOString() ?? null }
-      : {}),
     image: u.image ?? null,
     verified: u.verified,
     onboardingCompleted: u.onboardingCompleted,
@@ -42,8 +37,6 @@ export function mapNotification(n: DbNotification): Notification {
     title: n.title,
     body: n.body,
     href: n.href ?? undefined,
-    actorId: n.actorId ?? undefined,
-    actorAvatar: n.actorAvatar ?? undefined,
     entityId: n.entityId ?? undefined,
     entityType: n.entityType ?? undefined,
     createdAt: n.createdAt.toISOString(),

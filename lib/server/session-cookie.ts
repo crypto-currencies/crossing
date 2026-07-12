@@ -1,6 +1,6 @@
 /**
  * Shared cookie name and options for the custom DB session token.
- * Used by login, register, logout, and magic-link verify routes.
+ * Used by login, register, and logout routes.
  */
 
 export const SESSION_COOKIE = "session_token";

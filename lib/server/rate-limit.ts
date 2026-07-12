@@ -124,17 +124,26 @@ export async function rateLimit(
  *   3. x-forwarded-for         — standard de-facto header (take leftmost/first entry)
  */
 export function clientIp(request: Request): string {
+  return clientIpFromHeaders(request.headers);
+}
+
+/**
+ * Same extraction as `clientIp`, but from a `Headers` object directly —
+ * for Server Components / Server Actions, which get `headers()` from
+ * `next/headers` rather than a `Request`.
+ */
+export function clientIpFromHeaders(headers: Headers): string {
   // Vercel injects this before the request reaches your function — it cannot
   // be spoofed by the client because Vercel strips it from incoming requests
   // and re-adds it with the actual connecting IP.
-  const vercelFwd = request.headers.get("x-vercel-forwarded-for");
+  const vercelFwd = headers.get("x-vercel-forwarded-for");
   if (vercelFwd) return vercelFwd.split(",")[0].trim();
 
-  const realIp = request.headers.get("x-real-ip");
+  const realIp = headers.get("x-real-ip");
   if (realIp) return realIp.trim();
 
   // x-forwarded-for can contain a chain of IPs; the leftmost is the original client.
-  const fwdFor = request.headers.get("x-forwarded-for");
+  const fwdFor = headers.get("x-forwarded-for");
   if (fwdFor) return fwdFor.split(",")[0].trim();
 
   return "unknown";

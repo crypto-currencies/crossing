@@ -57,7 +57,7 @@ export default function AuthLayout({
                 className="font-black text-[var(--text)] leading-[0.9] tracking-[-0.03em] uppercase"
                 style={{ fontSize: "clamp(34px, 3.8vw, 46px)" }}
               >
-                Find what's
+                Find what&apos;s
                 <br />
                 worth it.
               </h2>

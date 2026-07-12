@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createHash, randomBytes } from "crypto";
+import { createHash } from "crypto";
 import { db, DB_AVAILABLE } from "@/lib/db";
 import { verifyPassword, createSession } from "@/lib/server/auth";
 import { mapUser } from "@/lib/server/mappers";
@@ -11,8 +11,6 @@ import { hashIp, maskIp, parseDevice, writeSecurityEvent } from "@/lib/server/se
 function accountKey(identifier: string): string {
   return createHash("sha256").update(identifier.toLowerCase()).digest("hex").slice(0, 24);
 }
-
-const PENDING_TTL_MS = 5 * 60 * 1000; // 5 minutes to complete 2FA
 
 export async function POST(request: Request) {
   if (!DB_AVAILABLE) {
@@ -73,26 +71,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "account_suspended" }, { status: 403 });
   }
 
-  // ── 2FA gate ───────────────────────────────────────────────────────────────
-  // If the account has TOTP enabled, do NOT create a session yet. Issue a
-  // short-lived pending token instead; the client must verify TOTP at
-  // POST /api/auth/login/2fa before receiving a real session token.
-  if (user.twoFactorEnabled && user.twoFactorSecret) {
-    const plain     = randomBytes(32).toString("hex");
-    const tokenHash = createHash("sha256").update(plain).digest("hex");
-    const expiresAt = new Date(Date.now() + PENDING_TTL_MS);
-
-    // Purge any stale pending tokens for this user (one at a time)
-    await db.pendingLogin.deleteMany({ where: { userId: user.id } }).catch(() => {});
-    await db.pendingLogin.create({ data: { tokenHash, userId: user.id, expiresAt } });
-
-    void writeSecurityEvent({ userId: user.id, type: "login_failed", ip, userAgent: ua,
-      metadata: { reason: "2fa_challenge_issued" } });
-
-    return NextResponse.json({ requires2FA: true, pendingToken: plain });
-  }
-
-  // ── No 2FA — issue session immediately ────────────────────────────────────
   const device = parseDevice(ua);
   const token  = await createSession(user.id, {
     userAgent:  ua,

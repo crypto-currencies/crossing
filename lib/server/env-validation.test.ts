@@ -7,7 +7,6 @@ const REQUIRED = {
   NEXTAUTH_SECRET: "x".repeat(32),
   OWNER_EMAIL: "owner@example.com",
   BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_x",
-  CRON_SECRET: "x".repeat(32),
   RESEND_API_KEY: "re_x",
   EMAIL_FROM: "noreply@example.com",
   UPSTASH_REDIS_REST_URL: "https://x.upstash.io",

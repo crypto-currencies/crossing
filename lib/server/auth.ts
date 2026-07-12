@@ -6,9 +6,7 @@
 import { scryptSync, randomBytes, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
-import { getToken } from "next-auth/jwt";
 import type { User } from "@prisma/client";
-import type { NextRequest } from "next/server";
 import { SESSION_COOKIE } from "@/lib/server/session-cookie";
 
 // ─── Role definitions ─────────────────────────────────────────────────────────

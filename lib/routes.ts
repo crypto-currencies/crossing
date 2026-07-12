@@ -10,8 +10,7 @@ const user = {
 } as const;
 
 const admin = {
-  dashboard:  "/control/admin",
-  moderation: "/control/admin/moderation",
+  dashboard: "/control/admin",
 } as const;
 
 const legal = {
@@ -34,7 +33,16 @@ const root = {
   suspended: "/suspended",
 } as const;
 
-export const ROUTES = { user, admin, legal, auth, root } as const;
+const discovery = {
+  search:      "/search",
+  category:    (slug: string) => `/category/${slug}`,
+  listing:     (slug: string) => `/listing/${slug}`,
+  saved:       "/saved",
+  submit:      "/submit",
+  submissions: "/submissions",
+} as const;
+
+export const ROUTES = { user, admin, legal, auth, root, discovery } as const;
 
 export const DEFAULT_REDIRECT          = ROUTES.user.dashboard;
 export const DEFAULT_REDIRECT_NEW_USER = ROUTES.user.dashboard;

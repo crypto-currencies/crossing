@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAuthStore } from "@/store/auth";
-import { AnimatePresence } from "framer-motion";
+import { AnimatePresence, MotionConfig } from "framer-motion";
 import { useUIStore } from "@/store/ui";
 import { ToastStack } from "@/components/ui/toast";
 import { NotificationPanel } from "@/components/notifications/notification-panel";
@@ -10,7 +10,6 @@ import { authService } from "@/lib/services/auth.service";
 import { notificationService } from "@/lib/services/notification.service";
 import { useNotificationsStore } from "@/store/notifications";
 import { clearAllUserState } from "@/store/clear-user-state";
-import { useLivePresence } from "@/hooks/use-live-presence";
 import { CookieBanner } from "@/components/layout/cookie-banner";
 
 interface ProvidersProps {
@@ -34,8 +33,6 @@ async function pollUserData() {
 }
 
 export function Providers({ children }: ProvidersProps) {
-  useLivePresence();
-
   // Track the last userId we hydrated for — prevents re-hydration when
   // other auth store fields update (e.g. token rotation).
   const hydratedForRef = useRef<string | null>(null);
@@ -106,7 +103,7 @@ export function Providers({ children }: ProvidersProps) {
     }
 
     bootstrap();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Reactive re-hydration: load stores whenever the authed user changes ──
   // This handles:
@@ -146,7 +143,7 @@ export function Providers({ children }: ProvidersProps) {
     }
 
     return unsub;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Background poll: keep notifications fresh ───────────────────────────────
   // Runs every 60s. Pauses automatically when the tab is hidden to avoid
@@ -177,13 +174,16 @@ export function Providers({ children }: ProvidersProps) {
   }, []);
 
   return (
-    <>
+    // reducedMotion="user" makes every framer-motion animation in the app
+    // (existing and new) honour the OS-level prefers-reduced-motion setting
+    // automatically, with no per-component opt-in required.
+    <MotionConfig reducedMotion="user">
       {children}
       <ModalLayer />
       <ToastStack />
       <NotificationPanel />
       <CookieBanner />
-    </>
+    </MotionConfig>
   );
 }
 

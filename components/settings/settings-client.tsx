@@ -6,24 +6,18 @@ import {
   User,
   Lock,
   Bell,
-  LifeBuoy,
   Monitor,
-  Shield,
   Mail,
-  Copy,
-  Check,
-  Download,
   UserX,
   KeyRound,
-  QrCode,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { useToastStore } from "@/store/toast";
 import { settingsService } from "@/lib/services/settings.service";
+import { authService } from "@/lib/services/auth.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Modal } from "@/components/ui/modal";
 import { SessionsTab } from "@/components/settings/sessions-tab";
@@ -32,11 +26,10 @@ import type { NotificationSettings } from "@/types";
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
 const PRIMARY_TABS = [
-  { key: "account",       label: "Account",       icon: User     },
-  { key: "security",      label: "Security",      icon: Lock     },
-  { key: "sessions",      label: "Sessions",      icon: Monitor  },
-  { key: "notifications", label: "Notifications", icon: Bell     },
-  { key: "support",       label: "Support",       icon: LifeBuoy },
+  { key: "account",       label: "Account",       icon: User    },
+  { key: "security",      label: "Security",      icon: Lock    },
+  { key: "sessions",      label: "Sessions",      icon: Monitor },
+  { key: "notifications", label: "Notifications", icon: Bell    },
 ] as const;
 
 type TabKey = typeof PRIMARY_TABS[number]["key"];
@@ -72,7 +65,6 @@ export function SettingsClient() {
       {tab === "security"      && <SecurityTab />}
       {tab === "sessions"      && <SessionsTab />}
       {tab === "notifications" && <NotificationsTab />}
-      {tab === "support"       && <SupportTab />}
     </div>
   );
 }
@@ -81,40 +73,39 @@ export function SettingsClient() {
 
 function AccountTab() {
   const { user } = useAuthStore();
-  const { success: toastSuccess, error: toastError } = useToastStore();
-  const [exporting, setExporting] = useState(false);
+  const { success: toastSuccess } = useToastStore();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  async function handleExport() {
-    setExporting(true);
-    try {
-      const res = await fetch("/api/account/export", { credentials: "include" });
-      if (!res.ok) throw new Error();
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "account-data.json";
-      a.click();
-      URL.revokeObjectURL(url);
-      toastSuccess("Export ready", "Your data download has started.");
-    } catch {
-      toastError("Export failed", "Please try again.");
-    } finally {
-      setExporting(false);
-    }
-  }
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function handleDelete() {
     setDeleting(true);
+    setDeleteError(null);
     try {
-      const res = await fetch("/api/account/delete", { method: "POST", credentials: "include" });
-      if (!res.ok) throw new Error();
-      toastSuccess("Deletion scheduled", "Your account will be deleted in 7 days.");
-      setDeleteModalOpen(false);
+      const res = await fetch("/api/account/delete", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: confirmText, password: password || undefined }),
+      });
+      const json = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) {
+        const msg =
+          json.error === "wrong_password"      ? "Incorrect password." :
+          json.error === "password_required"    ? "Enter your password to confirm." :
+          json.error === "confirmation_required" ? 'Type "DELETE" to confirm.' :
+          json.error === "owner_cannot_delete"  ? "Transfer ownership before deleting your account." :
+          "Failed to delete account. Please try again.";
+        setDeleteError(msg);
+        return;
+      }
+      toastSuccess("Account deleted");
+      await authService.signOut();
+      window.location.href = "/";
     } catch {
-      toastError("Failed to schedule deletion", "Please try again.");
+      setDeleteError("Network error — please try again.");
     } finally {
       setDeleting(false);
     }
@@ -131,20 +122,10 @@ function AccountTab() {
         <p className="t-body-sm mt-[4px] text-[var(--text-soft)]">{user?.email ?? "—"}</p>
       </div>
 
-      <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--panel)] p-[18px]">
-        <p className="t-label text-[var(--text)]">Export your data</p>
-        <p className="t-body-sm mt-[4px] text-[var(--text-soft)]">
-          Download a copy of your account data.
-        </p>
-        <Button variant="secondary" size="sm" className="mt-[12px]" loading={exporting} onClick={handleExport}>
-          <Download className="size-[13px]" /> Export data
-        </Button>
-      </div>
-
       <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/30 bg-[var(--panel)] p-[18px]">
         <p className="t-label text-[var(--danger)]">Delete account</p>
         <p className="t-body-sm mt-[4px] text-[var(--text-soft)]">
-          Permanently delete your account and all associated data after a 7-day grace period.
+          Permanently delete your account and all associated data. This cannot be undone.
         </p>
         <Button variant="danger" size="sm" className="mt-[12px]" onClick={() => setDeleteModalOpen(true)}>
           <UserX className="size-[13px]" /> Delete account
@@ -155,12 +136,34 @@ function AccountTab() {
         open={deleteModalOpen}
         onClose={() => setDeleteModalOpen(false)}
         title="Delete account?"
-        description="Your account will be permanently deleted after a 7-day grace period. You can cancel any time before then."
+        description="This permanently deletes your account and all associated data. This cannot be undone."
         size="sm"
       >
-        <div className="flex justify-end gap-[8px]">
-          <Button variant="ghost" size="md" onClick={() => setDeleteModalOpen(false)}>Cancel</Button>
-          <Button variant="danger" size="md" loading={deleting} onClick={handleDelete}>Delete account</Button>
+        <div className="stack-sm">
+          <Input
+            label='Type "DELETE" to confirm'
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+          />
+          <Input
+            type="password"
+            label="Password (if set)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          {deleteError && <p className="t-caption text-[var(--danger)]">{deleteError}</p>}
+          <div className="flex justify-end gap-[8px] mt-[8px]">
+            <Button variant="ghost" size="md" onClick={() => setDeleteModalOpen(false)}>Cancel</Button>
+            <Button
+              variant="danger"
+              size="md"
+              loading={deleting}
+              disabled={confirmText !== "DELETE"}
+              onClick={handleDelete}
+            >
+              Delete account
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>
@@ -176,22 +179,6 @@ function SecurityTab() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
-
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
-  const [manualKey, setManualKey] = useState("");
-  const [code, setCode] = useState("");
-  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/auth/security-status", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (data) setTwoFactorEnabled(!!data.twoFactorEnabled); })
-      .catch(() => {});
-  }, []);
 
   async function handleChangePassword() {
     setChangingPassword(true);
@@ -213,62 +200,6 @@ function SecurityTab() {
     }
   }
 
-  async function startTotpSetup() {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/2fa/totp/setup", { method: "POST", credentials: "include" });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setQrCodeDataUrl(data.qrCodeDataUrl);
-      setManualKey(data.manualKey);
-      setSetupOpen(true);
-    } catch {
-      toastError("Failed to start setup", "Please try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmTotpSetup() {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/2fa/totp/enable", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setBackupCodes(data.backupCodes);
-      setTwoFactorEnabled(true);
-      toastSuccess("Two-factor authentication enabled");
-    } catch {
-      toastError("Invalid code", "Please check the code and try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function disableTotp() {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/2fa/totp/disable", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      if (!res.ok) throw new Error();
-      setTwoFactorEnabled(false);
-      toastSuccess("Two-factor authentication disabled");
-    } catch {
-      toastError("Invalid code", "Please check the code and try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="stack-lg max-w-[560px]">
       <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--panel)] p-[18px]">
@@ -281,66 +212,6 @@ function SecurityTab() {
           </Button>
         </div>
       </div>
-
-      <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--panel)] p-[18px]">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="t-label text-[var(--text)]">Two-factor authentication</p>
-            <p className="t-body-sm mt-[4px] text-[var(--text-soft)]">
-              Require a code from your authenticator app when signing in.
-            </p>
-          </div>
-          <Badge variant={twoFactorEnabled ? "success" : "outline"} size="xs">
-            {twoFactorEnabled ? "Enabled" : "Disabled"}
-          </Badge>
-        </div>
-        <div className="mt-[12px]">
-          {!twoFactorEnabled ? (
-            <Button variant="secondary" size="sm" loading={busy} onClick={startTotpSetup}>
-              <QrCode className="size-[13px]" /> Set up 2FA
-            </Button>
-          ) : (
-            <div className="stack-sm">
-              <Input label="Enter code to disable" value={code} onChange={(e) => setCode(e.target.value)} placeholder="123456" />
-              <Button variant="danger" size="sm" loading={busy} onClick={disableTotp}>Disable 2FA</Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <Modal open={setupOpen} onClose={() => setSetupOpen(false)} title="Set up two-factor authentication" size="md">
-        <div className="stack-md">
-          {qrCodeDataUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={qrCodeDataUrl} alt="TOTP QR code" className="mx-auto rounded-[var(--radius-md)]" />
-          )}
-          <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--panel-2)] px-[10px] py-[8px]">
-            <span className="font-mono text-[12px]">{manualKey}</span>
-            <button
-              onClick={() => { navigator.clipboard.writeText(manualKey); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-              className="text-[var(--muted)] hover:text-[var(--text)]"
-            >
-              {copied ? <Check className="size-[14px]" /> : <Copy className="size-[14px]" />}
-            </button>
-          </div>
-          {!backupCodes ? (
-            <>
-              <Input label="Enter code from your app" value={code} onChange={(e) => setCode(e.target.value)} placeholder="123456" />
-              <Button variant="primary" size="md" loading={busy} onClick={confirmTotpSetup}>Confirm</Button>
-            </>
-          ) : (
-            <div className="stack-sm">
-              <p className="t-body-sm text-[var(--text-soft)]">
-                Save these backup codes somewhere safe. Each can be used once if you lose access to your authenticator app.
-              </p>
-              <div className="grid grid-cols-2 gap-[6px] font-mono text-[12px]">
-                {backupCodes.map((c) => <span key={c} className="rounded-[6px] border border-[var(--border)] bg-[var(--panel-2)] px-[8px] py-[4px]">{c}</span>)}
-              </div>
-              <Button variant="primary" size="md" onClick={() => setSetupOpen(false)}>Done</Button>
-            </div>
-          )}
-        </div>
-      </Modal>
 
       <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--panel)] p-[18px]">
         <p className="t-label text-[var(--text)]">Email verification</p>
@@ -392,7 +263,7 @@ function NotificationsTab() {
       return;
     }
     toastSuccess("Saved");
-  }, [user?.id, toastError, toastSuccess]);
+  }, [user, toastError, toastSuccess]);
 
   if (!loaded) return null;
 
@@ -411,26 +282,6 @@ function NotificationsTab() {
           <p className="t-body-sm mt-[4px] text-[var(--text-soft)]">Receive browser push notifications.</p>
         </div>
         <Switch checked={settings.pushEnabled} onChange={(v) => update({ pushEnabled: v })} />
-      </div>
-    </div>
-  );
-}
-
-// ─── Support ──────────────────────────────────────────────────────────────────
-
-function SupportTab() {
-  return (
-    <div className="stack-md max-w-[560px]">
-      <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--panel)] p-[18px]">
-        <p className="t-label text-[var(--text)] flex items-center gap-[6px]">
-          <Shield className="size-[14px]" /> Need help?
-        </p>
-        <p className="t-body-sm mt-[4px] text-[var(--text-soft)]">
-          Visit the support page to open a ticket with our team.
-        </p>
-        <Button variant="secondary" size="sm" className="mt-[12px]" asChild>
-          <a href="/support">Go to support</a>
-        </Button>
       </div>
     </div>
   );

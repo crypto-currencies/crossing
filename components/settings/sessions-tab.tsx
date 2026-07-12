@@ -366,7 +366,12 @@ export function SessionsTab() {
     }
   }, [toastError]);
 
-  useEffect(() => { void loadSessions(); }, [loadSessions]);
+  useEffect(() => {
+    // Deferred to a microtask so the fetch kickoff (and its synchronous
+    // setLoading/setRefreshing calls) run in a separate task from the
+    // effect's own invocation.
+    queueMicrotask(() => { void loadSessions(); });
+  }, [loadSessions]);
 
   const currentSession  = sessions.find((s) => s.current);
   const otherSessions   = sessions.filter((s) => !s.current);

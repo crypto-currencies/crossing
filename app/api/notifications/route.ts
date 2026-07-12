@@ -121,9 +121,6 @@ export async function POST(request: Request) {
     title?: unknown;
     body?: unknown;
     href?: unknown;
-    actorId?: unknown;
-    actorUsername?: unknown;
-    actorAvatar?: unknown;
     entityId?: unknown;
     entityType?: unknown;
   };
@@ -151,9 +148,6 @@ export async function POST(request: Request) {
       title: body.title,
       body: body.body as string,
       href: typeof body.href === "string" ? body.href.slice(0, 500) : null,
-      actorId: typeof body.actorId === "string" ? body.actorId : null,
-      actorUsername: typeof body.actorUsername === "string" ? body.actorUsername : null,
-      actorAvatar: typeof body.actorAvatar === "string" ? body.actorAvatar : null,
       entityId: typeof body.entityId === "string" ? body.entityId : null,
       entityType: typeof body.entityType === "string" ? body.entityType : null,
     },
