@@ -12,22 +12,22 @@ const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 function buildHtml(resetUrl: string): string {
   return emailLayout({
-    title: "Reset your password — crossing.dev",
+    title: "Reset your password — Crossing",
     heading: "Reset your password",
     body: [
       emailBodyText(
-        'Click the button below to set a new password for your crossing.dev account. This link expires in <strong style="color:#c4b5fd;">1 hour</strong> and can only be used once.'
+        'Click the button below to set a new password for your Crossing account. This link expires in <strong style="color:#4640de;">1 hour</strong> and can only be used once.'
       ),
       emailCtaButton("Reset password", resetUrl),
       emailFallbackUrl(resetUrl),
     ].join("\n"),
     footer:
-      "If you didn't request this, your account is safe — you can ignore this email. This request came from crossing.dev.",
+      "If you didn't request this, your account is safe — you can ignore this email. This request came from Crossing.",
   });
 }
 
 function buildText(resetUrl: string): string {
-  return `Reset your crossing.dev password
+  return `Reset your Crossing password
 
 Click the link below to set a new password. It expires in 1 hour and can only be used once.
 
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
   try {
     await sendEmail({
       to: email,
-      subject: "Reset your crossing.dev password",
+      subject: "Reset your Crossing password",
       html: buildHtml(resetUrl),
       text: buildText(resetUrl),
     });

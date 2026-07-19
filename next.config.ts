@@ -76,6 +76,8 @@ function buildCsp(): string {
       "*.public.blob.vercel-storage.com",
       // Google OAuth profile photos.
       "lh3.googleusercontent.com",
+      // Listing favicons when a first-party uploaded logo is not available.
+      "www.google.com",
       // Vercel preview toolbar UI assets.
       isVercelPreview ? "https://vercel.live https://vercel.com" : "",
     ].filter(Boolean).join(" "),
@@ -174,6 +176,11 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         hostname: "lh3.googleusercontent.com",
+      },
+      {
+        protocol: "https",
+        hostname: "www.google.com",
+        pathname: "/s2/favicons",
       },
     ],
   },

@@ -1,9 +1,5 @@
-import { RootShell } from "@/components/layout/root-shell";
+import type { ReactNode } from "react";
 
-export default function RootGroupLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return <RootShell>{children}</RootShell>;
+export default function RootRouteLayout({ children }: { children: ReactNode }) {
+  return children;
 }

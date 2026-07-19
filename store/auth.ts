@@ -66,7 +66,7 @@ export const useAuthStore = create<AuthStore>()(
         }),
     }),
     {
-      name: "exclude-auth",
+      name: "crossing-auth",
       partialize: (state) => ({ session: state.session }),
       skipHydration: true,
     }

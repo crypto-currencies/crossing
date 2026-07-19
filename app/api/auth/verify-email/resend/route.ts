@@ -15,21 +15,21 @@ const IDENTIFIER_PREFIX = "email-verify:";
 
 function buildHtml(verifyUrl: string, email: string): string {
   return emailLayout({
-    title: "Verify your email — crossing.dev",
+    title: "Verify your email — Crossing",
     heading: "Verify your email address",
     body: [
       emailBodyText(
-        `You're setting up your crossing.dev account with <strong style="color:#c4b5fd;">${email}</strong>. Click the button below to verify this address. This link expires in <strong style="color:#c4b5fd;">24 hours</strong>.`
+        `You're setting up your Crossing account with <strong style="color:#4640de;">${email}</strong>. Click the button below to verify this address. This link expires in <strong style="color:#4640de;">24 hours</strong>.`
       ),
       emailCtaButton("Verify email address", verifyUrl),
       emailFallbackUrl(verifyUrl),
     ].join("\n"),
-    footer: "If you didn't create an account on crossing.dev, you can safely ignore this email.",
+    footer: "If you didn't create an account on Crossing, you can safely ignore this email.",
   });
 }
 
 function buildText(verifyUrl: string): string {
-  return `Verify your crossing.dev email address
+  return `Verify your Crossing email address
 
 Click the link below to verify your email. It expires in 24 hours.
 
@@ -55,7 +55,7 @@ export async function sendVerificationEmail(userId: string, email: string): Prom
 
   await sendEmail({
     to: email,
-    subject: "Verify your email address — crossing.dev",
+    subject: "Verify your email address — Crossing",
     html: buildHtml(verifyUrl, email),
     text: buildText(verifyUrl),
   });

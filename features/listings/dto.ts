@@ -6,13 +6,25 @@
 import type { ListingCard as ListingCardRow, ListingDetail as ListingDetailRow } from "./data";
 import type { ListingCard, ListingDetail } from "@/types";
 
+function listingLogoUrl(logoUrl: string | null, websiteUrl: string): string | null {
+  if (logoUrl) return logoUrl;
+
+  try {
+    const site = new URL(websiteUrl);
+    const domainUrl = encodeURIComponent(`${site.protocol}//${site.hostname}`);
+    return `https://www.google.com/s2/favicons?domain_url=${domainUrl}&sz=128`;
+  } catch {
+    return null;
+  }
+}
+
 export function mapListingCard(row: ListingCardRow): ListingCard {
   return {
     id: row.id,
     name: row.name,
     slug: row.slug,
     tagline: row.tagline,
-    logoUrl: row.logoUrl,
+    logoUrl: listingLogoUrl(row.logoUrl, row.websiteUrl),
     coverImageUrl: row.coverImageUrl,
     websiteUrl: row.websiteUrl,
     publishedAt: row.publishedAt.toISOString(),

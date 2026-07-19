@@ -10,7 +10,7 @@ export function now(): string {
 export function authHeaders(): Record<string, string> {
   try {
     // Dynamic import avoids circular deps at module load; this runs client-side only
-    const stored = localStorage.getItem("exclude-auth");
+    const stored = localStorage.getItem("crossing-auth");
     if (!stored) return {};
     const parsed = JSON.parse(stored) as { state?: { session?: { token?: string } } };
     const token = parsed?.state?.session?.token;

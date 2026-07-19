@@ -228,6 +228,23 @@ async function main() {
   }
   console.log(`  listings: ${LISTINGS.length}`);
 
+  // ── Editorial boosts — the one manually-curated signal in the schema
+  // (see docs/ranking-v0.md). No admin UI writes this yet, so the seed sets
+  // a handful directly to give the homepage's "Editorial picks" section
+  // real data to show. Values stay well under EDITORIAL_BOOST_MAX (20).
+  const editorialBoosts: [string, number][] = [
+    ["cal-com", 14],
+    ["every", 11],
+    ["regex101", 9],
+    ["the-pudding", 7],
+  ];
+  for (const [slug, boost] of editorialBoosts) {
+    const listingId = listingIdBySlug.get(slug);
+    if (!listingId) continue;
+    await db.listing.update({ where: { id: listingId }, data: { editorialBoost: boost } });
+  }
+  console.log(`  editorial picks: ${editorialBoosts.length}`);
+
   // ── Ranking scores, computed from the seeded counters ──
   const { recomputeRankingScores } = await import("../features/listings/ranking");
   const { updated } = await recomputeRankingScores();

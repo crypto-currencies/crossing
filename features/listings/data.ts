@@ -130,46 +130,163 @@ export async function listNewestListings(page: PageParams): Promise<PagedResult<
 
 export interface HomepageSections {
   trending: ListingCard[];
+  popularThisWeek: ListingCard[];
+  editorialPicks: ListingCard[];
   recentlyAdded: ListingCard[];
   hiddenGems: ListingCard[];
 }
 
+interface HomepageSectionLimits {
+  trending?: number;
+  popularThisWeek?: number;
+  editorialPicks?: number;
+  recentlyAdded?: number;
+  hiddenGems?: number;
+}
+
+const POPULAR_WINDOW_DAYS = 7;
+
 /**
- * The three homepage listing carousels, computed together so each is
- * guaranteed disjoint from the ones before it (excludes by id, not by
- * relying on sort ties never colliding) — the homepage must never show the
- * same listing in two differently-titled sections.
+ * Every homepage listing section, computed together so each is guaranteed
+ * disjoint from the ones before it (excludes by id, not by relying on sort
+ * ties never colliding) — the homepage must never show the same listing in
+ * two differently-titled sections. Each section is a genuinely distinct
+ * real signal, not a re-sort of the same underlying order:
  *
- * - trending:      highest rankingScore (the same signal category pages use)
- * - recentlyAdded: newest by publishedAt, excluding anything already shown
- * - hiddenGems:    solid vote/save counts, excluding both lists above —
- *                  "worth checking out" listings that aren't currently on top
+ * - trending:        highest rankingScore — the blended, decayed signal
+ *                     category pages use.
+ * - popularThisWeek: raw vote+save velocity in the last 7 days specifically
+ *                     — distinct from `trending`, which blends recency into
+ *                     one score alongside lifetime totals. This is "what's
+ *                     getting attention *right now*," even if it hasn't
+ *                     accumulated enough lifetime signal to rank overall.
+ * - editorialPicks:  listings with a nonzero `editorialBoost` — the one
+ *                     manually-curated signal in the schema (see
+ *                     docs/ranking-v0.md). Genuinely empty until an admin
+ *                     (or the seed script, for now) sets it on something.
+ * - recentlyAdded:   newest by publishedAt.
+ * - hiddenGems:      solid vote/save counts among whatever's left — "worth
+ *                     checking out" listings that aren't currently on top.
  */
-export async function listHomepageSections(limit = 6): Promise<HomepageSections> {
-  const trending = await db.listing.findMany({
-    where: { status: "PUBLISHED" },
-    select: listingCardSelect,
-    orderBy: [{ rankingScore: "desc" }, { id: "desc" }],
-    take: limit,
-  });
+/**
+ * Runs one homepage section query in isolation — if it fails (bad connection
+ * blip, a single malformed row, whatever), that section degrades to empty
+ * instead of taking the rest of the homepage down with it. The error is
+ * logged server-side (never surfaced to the client) so it's still visible in
+ * production logs.
+ */
+async function safeSection<T>(section: string, fn: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(`[listHomepageSections] "${section}" query failed, degrading to empty:`, err);
+    return [];
+  }
+}
+
+export async function listHomepageSections(limits: HomepageSectionLimits = {}): Promise<HomepageSections> {
+  const {
+    trending: trendingLimit = 6,
+    popularThisWeek: popularLimit = 5,
+    editorialPicks: editorialLimit = 4,
+    recentlyAdded: recentLimit = 6,
+    hiddenGems: gemsLimit = 5,
+  } = limits;
+
+  const trending = await safeSection("trending", () =>
+    db.listing.findMany({
+      where: { status: "PUBLISHED" },
+      select: listingCardSelect,
+      orderBy: [{ rankingScore: "desc" }, { id: "desc" }],
+      take: trendingLimit,
+    })
+  );
   const trendingIds = trending.map((l) => l.id);
 
-  const recentlyAdded = await db.listing.findMany({
-    where: { status: "PUBLISHED", id: { notIn: trendingIds } },
+  const popularThisWeek = await safeSection("popularThisWeek", () =>
+    listPopularThisWeek(trendingIds, popularLimit)
+  );
+  const popularIds = popularThisWeek.map((l) => l.id);
+
+  const editorialPicks = await safeSection("editorialPicks", () =>
+    db.listing.findMany({
+      where: {
+        status: "PUBLISHED",
+        editorialBoost: { gt: 0 },
+        id: { notIn: [...trendingIds, ...popularIds] },
+      },
+      select: listingCardSelect,
+      orderBy: [{ editorialBoost: "desc" }, { id: "desc" }],
+      take: editorialLimit,
+    })
+  );
+  const editorialIds = editorialPicks.map((l) => l.id);
+
+  const recentlyAdded = await safeSection("recentlyAdded", () =>
+    db.listing.findMany({
+      where: { status: "PUBLISHED", id: { notIn: [...trendingIds, ...popularIds, ...editorialIds] } },
+      select: listingCardSelect,
+      orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
+      take: recentLimit,
+    })
+  );
+
+  const excludeIds = [...trendingIds, ...popularIds, ...editorialIds, ...recentlyAdded.map((l) => l.id)];
+  const hiddenGems = await safeSection("hiddenGems", () =>
+    db.listing.findMany({
+      where: { status: "PUBLISHED", id: { notIn: excludeIds } },
+      select: listingCardSelect,
+      orderBy: [{ voteCount: "desc" }, { saveCount: "desc" }, { id: "desc" }],
+      take: gemsLimit,
+    })
+  );
+
+  return { trending, popularThisWeek, editorialPicks, recentlyAdded, hiddenGems };
+}
+
+/**
+ * Vote+save velocity within the last POPULAR_WINDOW_DAYS, ranked by count —
+ * a windowed engagement signal, not a blended/decayed score. Two separate
+ * groupBy aggregates (Vote and Save have no direct relation to join on)
+ * merged in memory, then the top listings' full card data is fetched in one
+ * query. Excludes `excludeIds` (already-shown trending listings) up front
+ * so this never has to over-fetch to backfill after filtering.
+ */
+async function listPopularThisWeek(excludeIds: string[], limit: number): Promise<ListingCard[]> {
+  const windowStart = new Date(Date.now() - POPULAR_WINDOW_DAYS * 86_400_000);
+
+  const [recentVotes, recentSaves] = await Promise.all([
+    db.vote.groupBy({
+      by: ["listingId"],
+      where: { createdAt: { gte: windowStart }, listingId: { notIn: excludeIds } },
+      _count: { _all: true },
+    }),
+    db.save.groupBy({
+      by: ["listingId"],
+      where: { createdAt: { gte: windowStart }, listingId: { notIn: excludeIds } },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const activity = new Map<string, number>();
+  for (const row of recentVotes) activity.set(row.listingId, (activity.get(row.listingId) ?? 0) + row._count._all);
+  for (const row of recentSaves) activity.set(row.listingId, (activity.get(row.listingId) ?? 0) + row._count._all);
+
+  const topIds = [...activity.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([id]) => id);
+
+  if (topIds.length === 0) return [];
+
+  const listings = await db.listing.findMany({
+    where: { status: "PUBLISHED", id: { in: topIds } },
     select: listingCardSelect,
-    orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
-    take: limit,
   });
 
-  const excludeIds = [...trendingIds, ...recentlyAdded.map((l) => l.id)];
-  const hiddenGems = await db.listing.findMany({
-    where: { status: "PUBLISHED", id: { notIn: excludeIds } },
-    select: listingCardSelect,
-    orderBy: [{ voteCount: "desc" }, { saveCount: "desc" }, { id: "desc" }],
-    take: limit,
-  });
-
-  return { trending, recentlyAdded, hiddenGems };
+  // groupBy has no stable order guarantee — resort to match the computed ranking.
+  const byId = new Map(listings.map((l) => [l.id, l]));
+  return topIds.map((id) => byId.get(id)).filter((l): l is ListingCard => l != null);
 }
 
 /** Other published listings in the same category — for a listing's detail page. */
