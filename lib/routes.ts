@@ -33,6 +33,17 @@ const root = {
   suspended: "/suspended",
 } as const;
 
+const site = {
+  business:              "/business",
+  businessPricing:       "/business/pricing",
+  pricing:               "/pricing",
+  contribute:            "/contribute",
+  journal:               "/journal",
+  about:                 "/about",
+  cookies:               "/cookies",
+  promotionDisclosure:   "/promotion-disclosure",
+} as const;
+
 const discovery = {
   search:      "/search",
   category:    (slug: string) => `/category/${slug}`,
@@ -42,7 +53,7 @@ const discovery = {
   submissions: "/submissions",
 } as const;
 
-export const ROUTES = { user, admin, legal, auth, root, discovery } as const;
+export const ROUTES = { user, admin, legal, auth, root, discovery, site } as const;
 
 export const DEFAULT_REDIRECT          = ROUTES.user.dashboard;
 export const DEFAULT_REDIRECT_NEW_USER = ROUTES.user.dashboard;
