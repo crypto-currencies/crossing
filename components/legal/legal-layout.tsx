@@ -40,6 +40,16 @@ export function LegalLayout({ title, updated, active, children }: LegalLayoutPro
           <div>
             <h1 className="t-display-md">{title}</h1>
             <p className="t-caption mt-2">Last updated {updated}</p>
+
+            {/* These documents are working drafts written by the product team.
+                They have NOT been reviewed by counsel and are not a final legal
+                agreement. See docs/product-surface-audit.md → "Legal". */}
+            <div className="legal-draft-banner mt-6" role="note">
+              <strong>Draft — not legally reviewed.</strong> Crossing is pre-launch. This document
+              describes our current intent in plain language, but it has not been reviewed by a
+              qualified lawyer and is not a binding agreement yet.
+            </div>
+
             <div className="t-body mt-8 flex flex-col gap-5 text-[var(--text-secondary)] [&_h2]:t-heading [&_h2]:mt-4 [&_h2]:text-[var(--text-primary)]">
               {children}
             </div>

@@ -30,13 +30,13 @@ const PLANS = [
     price: "$99",
     period: "/month",
     description: "Maximum visibility, labeled clearly.",
-    features: ["Everything in Growth", "Homepage rotation", "“Sponsored” badge, never affects ranking"],
+    features: ["Everything in Growth", "Homepage rotation", "“Sponsored” badge, never changes recommendations"],
     highlight: false,
   },
 ];
 
 const FAQ = [
-  { q: "Does paying change my ranking?", a: "No. Ranking is based on votes, saves, and quality — never payment." },
+  { q: "Does paying change my position?", a: "No. Regular recommendations are based on relevance and quality — never payment." },
   { q: "Can I cancel anytime?", a: "Yes, plans are month-to-month with no lock-in." },
   { q: "Is there a free option?", a: "Yes — every business can list for free, permanently." },
 ];

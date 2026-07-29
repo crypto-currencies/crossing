@@ -204,7 +204,7 @@ export default function StyleGuidePage() {
             <Card shape="tall">
               <div>
                 <p className="t-label">Tall</p>
-                <p className="t-caption">Ranked results, listings</p>
+                <p className="t-caption">Search results, listings</p>
               </div>
               <p className="t-display-md">#1</p>
             </Card>

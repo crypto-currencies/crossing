@@ -143,7 +143,54 @@ export async function createSession(userId: string, meta?: SessionMeta): Promise
 
 const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000; // update at most once per 5 minutes
 
-/** Validates a token and returns the associated user, or null if invalid/expired. */
+/**
+ * Revoke every session belonging to a user.
+ *
+ * Accepts an optional transaction client so suspension can revoke atomically —
+ * a user must never be left flagged suspended while their sessions still
+ * validate, nor the reverse.
+ *
+ * Returns the number of sessions destroyed, for audit logging.
+ */
+export async function revokeAllSessions(
+  userId: string,
+  client: SessionRevoker = db
+): Promise<number> {
+  const { count } = await client.session.deleteMany({ where: { userId } });
+  return count;
+}
+
+/**
+ * The slice of the Prisma client this helper needs. Declared structurally so a
+ * transaction client (`tx`) and the base client are both accepted, and so tests
+ * can pass a fake without a database.
+ */
+export interface SessionRevoker {
+  session: {
+    deleteMany(args: { where: { userId: string } }): Promise<{ count: number }>;
+  };
+}
+
+/**
+ * Validates a token and returns the associated user, or null if invalid,
+ * expired, **or suspended**.
+ *
+ * SUSPENSION IS ENFORCED HERE, CENTRALLY (SEC-002 / SEC-010). Every
+ * authenticated entry point funnels through this function — `requireAuth`,
+ * `requireRole`, `requireAdmin`, `requireOwner`, and `getServerUser` — so a
+ * suspended account loses access to every authenticated route at once, without
+ * each route having to remember to ask.
+ *
+ * Suspension does NOT delete the session row here. Revocation is the
+ * suspending admin's job (`revokeAllSessions`, run in the same transaction);
+ * rejecting on read is the second layer, and it also covers any session created
+ * by a path that bypassed `createSession`.
+ *
+ * Two flows deliberately do NOT depend on this function and therefore still
+ * work while suspended, which is correct:
+ *   - `deleteSession` (logout) — a suspended user must still be able to sign out.
+ *   - `/suspended` — a static page, so the notice always renders.
+ */
 export async function validateSession(
   token: string | null | undefined
 ): Promise<User | null> {
@@ -158,6 +205,9 @@ export async function validateSession(
       await db.session.delete({ where: { sessionToken: token } }).catch(() => {});
       return null;
     }
+    // A session that outlived its account's suspension is not a valid session.
+    // Checked before lastSeen is touched so a suspended caller leaves no trace.
+    if (session.user.suspendedAt) return null;
     // Throttled lastSeen update — fire-and-forget, never blocks the request
     if (Date.now() - session.lastSeenAt.getTime() > LAST_SEEN_THROTTLE_MS) {
       db.session.update({

@@ -57,6 +57,24 @@ model User {
   approvedListings    Listing[]    @relation("ListingApprovedBy")
   saves               Save[]
   votes               Vote[]
+
+  // ── Product domain (docs/backend-product-plan.md) ──
+  // Business capability is membership-based: a user is never a "business user",
+  // they simply hold BusinessMembership rows alongside their consumer data.
+  businessMemberships    BusinessMembership[]
+  createdBusinesses      Business[]               @relation("BusinessCreatedBy")
+  sentInvitations        BusinessInvitation[]     @relation("InvitationInvitedBy")
+  requestedClaims        ListingClaim[]           @relation("ClaimRequestedBy")
+  reviewedClaims         ListingClaim[]           @relation("ClaimReviewedBy")
+  savedItems             SavedItem[]
+  collections            Collection[]
+  contributions          Contribution[]           @relation("ContributionSubmittedBy")
+  assignedContributions  Contribution[]           @relation("ContributionAssignedTo")
+  reviewedContributions  Contribution[]           @relation("ContributionReviewedBy")
+  searchEvents           SearchEvent[]
+  recommendationFeedback RecommendationFeedback[]
+  journalPosts           JournalPost[]            @relation("JournalAuthor")
+  approvedLegalDocuments LegalDocument[]          @relation("LegalApprovedBy")
 }
 
 model Account {
@@ -285,6 +303,8 @@ model Listing {
   submission Submission?
   saves      Save[]
   votes      Vote[]
+  /// Optional bridge to the canonical recommendation entity (never auto-merged).
+  entity     Entity?
 
   @@index([status, categoryId])
   @@index([status, rankingScore(sort: Desc)])
@@ -349,4 +369,547 @@ model Vote {
 
   @@unique([userId, listingId])
   @@index([listingId])
+}
+
+// ─── Evidence Snapshots ────────────────────────────────────────────────────────
+// Append-only, versioned evidence from source adapters (official-site first).
+// A refresh writes a NEW row; history is never overwritten. We store hashes +
+// constrained excerpts (in `provenance`/`pages`) — NEVER full raw HTML.
+// See features/ingestion/ and docs/ingestion.md.
+
+model EvidenceSnapshot {
+  id                 String   @id @default(cuid())
+  entityId           String
+  adapterId          String
+  primarySourceUrl   String
+  retrievedAt        DateTime
+  ok                 Boolean
+  httpStatus         Int? // representative page status (null when no page fetched)
+  httpMeta           Json // { pagesFetched, pagesFailed, totalBytes, totalDurationMs }
+  contentFingerprint String
+  extractionVersion  String
+  attributes         Json // normalized engine attributes
+  pricing            Json // normalized pricing model
+  provenance         Json // per-attribute provenance (constrained excerpts only)
+  pages              Json // per-page results (url, status, bytes, fingerprint, error) — no HTML
+  confidence         Float
+  freshnessStatus    String
+  warnings           Json
+  errorKind          String? // classification when the run failed
+  errorMessage       String?
+  createdAt          DateTime @default(now())
+
+  // Dedup guard: an identical fingerprint for an entity is never stored twice.
+  @@unique([entityId, contentFingerprint])
+  @@index([entityId])
+  @@index([adapterId])
+  @@index([retrievedAt(sort: Desc)])
+  @@index([contentFingerprint])
+  // Latest-valid-snapshot lookup.
+  @@index([entityId, ok, retrievedAt(sort: Desc)])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PRODUCT DOMAIN — see docs/backend-product-plan.md
+// Additive only: no model above is altered. Every surface is gated by a feature
+// flag (lib/server/feature-flags.ts) so an un-enabled deploy is inert.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Canonical recommendation entity ──────────────────────────────────────────
+// The recommendation unit. Deliberately separate from Listing (community
+// directory) — see plan section 2. `source` keeps fictional demo data out of
+// production retrieval.
+
+enum EntityStatus {
+  DRAFT
+  ACTIVE
+  HIDDEN
+  ARCHIVED
+  CLOSED
+}
+
+enum EntitySource {
+  CANONICAL
+  DEMO
+}
+
+model Entity {
+  id             String       @id @default(cuid())
+  /// Stable public key, also the ingestion registry key (e.g. "matomo").
+  key            String       @unique
+  canonicalName  String
+  /// Code-defined recommendation category id (e.g. "analytics-tools").
+  categoryId     String
+  officialDomain String
+  /// Normalized comparison key — prevents accidental duplicate entities.
+  domainKey      String       @unique
+  description    String       @default("")
+  /// Engine-usable facts; keys match category attribute keys.
+  attributes     Json         @default("{}")
+  status         EntityStatus @default(DRAFT)
+  source         EntitySource @default(CANONICAL)
+
+  /// Optional bridge to the legacy community directory. Never auto-merged.
+  listingId String?  @unique
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  claimedByBusinessId String?
+  claimedByBusiness   Business? @relation(fields: [claimedByBusinessId], references: [id], onDelete: SetNull)
+
+  lastUpdatedAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  aliases     EntityAlias[]
+  externalIds EntityExternalId[]
+  savedItems  SavedItem[]
+  claims      ListingClaim[]
+  feedback    RecommendationFeedback[]
+
+  @@index([categoryId, status, source])
+  @@index([status, lastUpdatedAt(sort: Desc)])
+  @@index([claimedByBusinessId])
+}
+
+model EntityAlias {
+  id       String @id @default(cuid())
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  alias    String
+
+  @@unique([entityId, alias])
+  @@index([alias])
+}
+
+model EntityExternalId {
+  id         String @id @default(cuid())
+  entityId   String
+  entity     Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  sourceType String
+  externalId String
+  url        String
+
+  @@unique([sourceType, externalId])
+  @@index([entityId])
+}
+
+// ─── Business / organization ──────────────────────────────────────────────────
+// A business is NOT a user type. Capability comes from BusinessMembership rows,
+// so one person can be both a consumer and a business representative.
+
+enum BusinessRole {
+  OWNER
+  ADMIN
+  EDITOR
+  ANALYST
+  BILLING
+}
+
+enum BusinessStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  SUSPENDED
+}
+
+model Business {
+  id         String         @id @default(cuid())
+  name       String
+  slug       String         @unique
+  /// Normalized primary domain — basis for domain-ownership verification.
+  domainKey  String?        @unique
+  websiteUrl String?
+  status     BusinessStatus @default(PENDING_VERIFICATION)
+  verifiedAt DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("BusinessCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships BusinessMembership[]
+  invitations BusinessInvitation[]
+  claims      ListingClaim[]
+  entities    Entity[]
+
+  @@index([status])
+}
+
+model BusinessMembership {
+  id         String       @id @default(cuid())
+  businessId String
+  business   Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       BusinessRole @default(EDITOR)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@index([businessId, role])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+model BusinessInvitation {
+  id               String           @id @default(cuid())
+  businessId       String
+  business         Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// Always stored lowercase and trimmed.
+  email            String
+  role             BusinessRole     @default(EDITOR)
+  /// SHA-256 of the emailed token — never the plaintext.
+  tokenHash        String           @unique
+  status           InvitationStatus @default(PENDING)
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  acceptedByUserId String?
+
+  invitedById String?
+  invitedBy   User?   @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([businessId, status])
+  @@index([status, expiresAt])
+}
+
+// ─── Listing claim (ownership proof) ──────────────────────────────────────────
+
+enum ClaimStatus {
+  STARTED
+  EMAIL_VERIFICATION_PENDING
+  DOMAIN_VERIFICATION_PENDING
+  DOCUMENT_REVIEW_PENDING
+  APPROVED
+  REJECTED
+  REVOKED
+}
+
+enum ClaimMethod {
+  EMAIL_DOMAIN
+  DNS_TXT
+  FILE_TOKEN
+  MANUAL_REVIEW
+}
+
+model ListingClaim {
+  id         String      @id @default(cuid())
+  entityId   String
+  entity     Entity      @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  businessId String
+  business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  status     ClaimStatus @default(STARTED)
+  method     ClaimMethod
+
+  /// SHA-256 of the verification token; single-use and expiring.
+  tokenHash      String?   @unique
+  expiresAt      DateTime?
+  consumedAt     DateTime?
+  /// Exact value the claimant must publish (DNS TXT value / file contents).
+  challenge      String?
+  verifiedAt     DateTime?
+  rejectedReason String?
+
+  requestedById String?
+  requestedBy   User?   @relation("ClaimRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  reviewedById  String?
+  reviewedBy    User?   @relation("ClaimReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events ClaimEvent[]
+
+  @@index([entityId, status])
+  @@index([businessId, status])
+}
+
+model ClaimEvent {
+  id         String       @id @default(cuid())
+  claimId    String
+  claim      ListingClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  fromStatus ClaimStatus?
+  toStatus   ClaimStatus
+  note       String?
+  actorId    String?
+  createdAt  DateTime     @default(now())
+
+  @@index([claimId, createdAt])
+}
+
+// ─── Saved items + collections ────────────────────────────────────────────────
+// Distinct from the legacy `Save` model, which bookmarks a `Listing`. This saves
+// a recommendation `Entity` — the thing search actually returns.
+
+model SavedItem {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  note        String?
+  tags        String[] @default([])
+  /// Optional provenance: the search that produced this save.
+  sourceQuery String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  collectionItems CollectionItem[]
+
+  @@unique([userId, entityId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([entityId])
+}
+
+model Collection {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  isDefault Boolean @default(false)
+  position  Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items CollectionItem[]
+
+  @@unique([userId, slug])
+  @@index([userId, position])
+}
+
+model CollectionItem {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  savedItemId  String
+  savedItem    SavedItem  @relation(fields: [savedItemId], references: [id], onDelete: Cascade)
+  position     Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  @@unique([collectionId, savedItemId])
+  @@index([collectionId, position])
+}
+
+// ─── Unified contribution pipeline ────────────────────────────────────────────
+
+enum ContributionKind {
+  SUGGEST_LISTING
+  SUBMIT_LISTING
+  CORRECT_INFORMATION
+  REPORT_OUTDATED_EVIDENCE
+  SUGGEST_CATEGORY
+  REPORT_BROKEN_OR_CLOSED
+  RECOMMENDATION_FEEDBACK
+}
+
+enum ContributionStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  NEEDS_INFORMATION
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+model Contribution {
+  id     String             @id @default(cuid())
+  kind   ContributionKind
+  status ContributionStatus @default(SUBMITTED)
+
+  /// Target entity when correcting/reporting an existing option.
+  entityId     String?
+  /// Free-form target hint when no entity exists yet.
+  targetName   String?
+  targetUrl    String?
+  targetUrlKey String?
+  categoryId   String?
+
+  /// Structured payload, validated per-kind by Zod before insert.
+  payload   Json    @default("{}")
+  /// Submitter-supplied provenance for the claim being made.
+  sourceUrl String?
+  comment   String?
+
+  submittedById String?
+  submittedBy   User?   @relation("ContributionSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  /// Hashed identifier for limited anonymous flows — never a raw IP.
+  anonymousHash String?
+
+  /// Business origin when a claimed business submits a correction.
+  businessId String?
+
+  moderatorNote    String?
+  resolutionReason String?
+  assignedToId     String?
+  assignedTo       User?     @relation("ContributionAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  reviewedById     String?
+  reviewedBy       User?     @relation("ContributionReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?
+
+  /// Set when duplicate detection matches an existing contribution.
+  duplicateOfId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events ContributionEvent[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([kind, status])
+  @@index([submittedById])
+  @@index([entityId])
+  @@index([targetUrlKey])
+}
+
+model ContributionEvent {
+  id             String              @id @default(cuid())
+  contributionId String
+  contribution   Contribution        @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+  fromStatus     ContributionStatus?
+  toStatus       ContributionStatus
+  note           String?
+  actorId        String?
+  createdAt      DateTime            @default(now())
+
+  @@index([contributionId, createdAt])
+}
+
+// ─── Search + feedback events ─────────────────────────────────────────────────
+
+model SearchEvent {
+  id              String   @id @default(cuid())
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Nulled by the retention job after the configured window.
+  rawQuery        String?
+  categoryId      String?
+  /// success | unsupported-category | needs-clarification | no-results | error
+  responseStatus  String
+  resultEntityIds String[] @default([])
+  bestEntityId    String?
+  timingMs        Int?
+  /// Correlates feedback/click events without exposing identity.
+  requestId       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([categoryId, createdAt(sort: Desc)])
+  @@index([requestId])
+}
+
+enum FeedbackKind {
+  HELPFUL
+  NOT_HELPFUL
+  WRONG_CATEGORY
+  MISSED_OPTION
+  INCORRECT_FACT
+  OUTDATED_INFORMATION
+}
+
+model RecommendationFeedback {
+  id        String       @id @default(cuid())
+  kind      FeedbackKind
+  requestId String?
+  entityId  String?
+  entity    Entity?      @relation(fields: [entityId], references: [id], onDelete: SetNull)
+
+  userId        String?
+  user          User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// Hashed anonymous session token — never a raw IP or cookie value.
+  anonymousHash String?
+
+  comment     String?
+  needsReview Boolean   @default(false)
+  reviewedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([requestId, kind, userId])
+  @@index([entityId, kind])
+  @@index([createdAt(sort: Desc)])
+}
+
+// ─── Editorial journal ────────────────────────────────────────────────────────
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+model JournalPost {
+  id      String     @id @default(cuid())
+  slug    String     @unique
+  title   String
+  summary String     @default("")
+  /// Sanitized at render time; see the contract in features/journal.
+  body    String     @default("")
+  status  PostStatus @default(DRAFT)
+
+  authorId String?
+  author   User?   @relation("JournalAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  heroImageUrl   String?
+  tags           String[] @default([])
+  categoryId     String?
+  readMinutes    Int      @default(0)
+  seoTitle       String?
+  seoDescription String?
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([categoryId])
+}
+
+// ─── Versioned legal documents ────────────────────────────────────────────────
+// Content is authored/approved by the product owner — never generated.
+
+enum LegalDocumentType {
+  TERMS
+  PRIVACY
+  COOKIES
+  DMCA
+  PROMOTION_DISCLOSURE
+  PLATFORM_POLICIES
+}
+
+model LegalDocument {
+  id            String            @id @default(cuid())
+  type          LegalDocumentType
+  version       Int
+  title         String
+  body          String
+  /// Published documents are immutable; a change means a new version row.
+  isPublished   Boolean           @default(false)
+  effectiveDate DateTime?
+  publishedAt   DateTime?
+
+  approvedById String?
+  approvedBy   User?   @relation("LegalApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type, version])
+  @@index([type, isPublished, effectiveDate(sort: Desc)])
 }

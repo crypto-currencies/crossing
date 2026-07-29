@@ -78,6 +78,8 @@ function buildCsp(): string {
       "lh3.googleusercontent.com",
       // Listing favicons when a first-party uploaded logo is not available.
       "www.google.com",
+      // Editorial photography used on the public homepage and attribution page.
+      "images.unsplash.com",
       // Vercel preview toolbar UI assets.
       isVercelPreview ? "https://vercel.live https://vercel.com" : "",
     ].filter(Boolean).join(" "),
@@ -181,6 +183,11 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "www.google.com",
         pathname: "/s2/favicons",
+      },
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+        pathname: "/photo-*",
       },
     ],
   },

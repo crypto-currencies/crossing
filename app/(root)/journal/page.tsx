@@ -1,33 +1,44 @@
-import { PageTransition, Reveal } from "@/components/motion";
-import { PageHero } from "@/components/marketing/page-hero";
+import type { Metadata } from "next";
 import { Container } from "@/components/layout/container";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { JournalCard } from "@/components/journal/journal-card";
+import { ProductHeader, ProductNotice } from "@/components/product/product-primitives";
+import { JOURNAL_POSTS } from "@/content/journal";
 
-const POSTS = [
-  { title: "How ranking actually works", tag: "Product", date: "Jun 2026" },
-  { title: "Why we don't sell placement", tag: "Product", date: "May 2026" },
-  { title: "Crossing is now in three new cities", tag: "Update", date: "Apr 2026" },
-];
+export const metadata: Metadata = {
+  title: "Journal — Crossing",
+  description: "Editorial notes about recommendations, evidence, and the product Crossing is building.",
+};
 
 export default function JournalPage() {
-  return (
-    <PageTransition>
-      <PageHero eyebrow="Journal" title="Notes from the team" subtitle="What we're building and why." />
+  const featured = JOURNAL_POSTS.find((post) => post.featured) ?? JOURNAL_POSTS[0];
+  const latest = JOURNAL_POSTS.filter((post) => post.slug !== featured.slug);
 
-      <Container size="content" className="pb-24">
-        <Reveal className="flex flex-col gap-1">
-          {POSTS.map((post) => (
-            <Card key={post.title} shape="row">
-              <div className="flex items-center gap-3">
-                <span className="t-body-sm text-[var(--text-primary)]">{post.title}</span>
-                <Badge variant="outline">{post.tag}</Badge>
-              </div>
-              <span className="t-caption">{post.date}</span>
-            </Card>
-          ))}
-        </Reveal>
-      </Container>
-    </PageTransition>
+  return (
+    <Container size="xl" className="product-page journal-page">
+      <ProductHeader
+        eyebrow="Crossing Journal"
+        title="Notes on making better choices"
+        description="Editorial writing is separate from regular recommendations. Stories explain the product and its methods; they do not affect result order."
+      />
+      <ProductNotice label="Editorial preview">
+        <p>This preview shows how journal stories will appear once editorial publishing is available.</p>
+      </ProductNotice>
+      <section className="product-section" aria-labelledby="featured-story-title">
+        <p className="product-eyebrow">Featured</p>
+        <h2 id="featured-story-title" className="sr-only">Featured story</h2>
+        <JournalCard post={featured} featured />
+      </section>
+      <section className="product-section" aria-labelledby="latest-stories-title">
+        <div className="product-section-heading">
+          <div>
+            <p className="product-eyebrow">Latest</p>
+            <h2 id="latest-stories-title">More from the journal</h2>
+          </div>
+        </div>
+        <div className="journal-grid">
+          {latest.map((post) => <JournalCard key={post.slug} post={post} />)}
+        </div>
+      </section>
+    </Container>
   );
 }

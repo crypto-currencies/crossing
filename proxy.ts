@@ -1,23 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { isProtectedPath } from "@/lib/auth-redirect";
 
-// Routes that require authentication (cookie presence only — role checks happen
-// in layouts/pages which have full DB access).
-const PROTECTED_ROUTES = [
-  "/dashboard",
-  "/settings",
-  "/notifications",
-  "/control", // role guard enforced server-side in app/(dashboard)/control/admin/layout.tsx
-];
+// Only the routes in PROTECTED_PREFIXES (lib/auth-redirect.ts) require a session
+// cookie. `/login` and `/api/auth/*` are deliberately NOT matched here, so the
+// OAuth flow and the login page are never blocked and can't loop.
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const isProtected = PROTECTED_ROUTES.some(
-    (r) => pathname === r || pathname.startsWith(r + "/")
-  );
-
-  if (isProtected) {
+  if (isProtectedPath(pathname)) {
     // Accept our custom httpOnly session cookie OR a NextAuth session cookie
     const hasSession =
       request.cookies.has("session_token") ||

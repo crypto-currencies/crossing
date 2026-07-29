@@ -14,7 +14,7 @@ export function RankedAnswerWindow({ selectedId, onSelect, className }: Props) {
   const alternatives = SCENE_PLACES.filter((p) => p.id !== selectedId);
 
   return (
-    <WindowShell icon={Trophy} title="Ranked answer" subtitle="The one worth choosing" className={className}>
+    <WindowShell icon={Trophy} title="Best match" subtitle="The strongest fit for this search" className={className}>
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-4">
           <div>
